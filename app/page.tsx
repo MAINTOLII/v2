@@ -2,21 +2,29 @@
 
 import React, { useMemo, useState } from "react";
 import ProductManager from "./components/ProductManager";
+import ProductFillCards from "./components/al";
 import Online from "./components/Online";
 import OrdersManager from "./components/OrdersManager";
 import POS from "./components/POS";
 import CreditsManager from "./components/CreditsManager";
+import PNL from "./components/PNL";
+import Price from "./components/price";
+import Upload from "./components/Upload";
 
-type SectionKey = "products" | "online" | "orders" | "pos" | "credits";
+type SectionKey = "products" | "fill" | "online" | "pricing" | "upload" | "orders" | "pos" | "credits" | "pnl";
 
 type NavItem = { key: SectionKey; label: string; icon: string };
 
 const NAV: NavItem[] = [
   { key: "products", label: "Products", icon: "📦" },
+  { key: "fill", label: "Fill Missing", icon: "🧩" },
   { key: "online", label: "Online", icon: "🌐" },
+  { key: "pricing", label: "Pricing", icon: "💰" },
+  { key: "upload", label: "Upload", icon: "⬆️" },
   { key: "pos", label: "POS", icon: "🧾" },
   { key: "orders", label: "Orders", icon: "📋" },
   { key: "credits", label: "Credits", icon: "💳" },
+  { key: "pnl", label: "P&L", icon: "📈" },
 ];
 
 const styles: Record<string, React.CSSProperties> = {
@@ -161,14 +169,22 @@ export default function Page() {
 
         {active === "products" ? (
           <ProductManager />
+        ) : active === "fill" ? (
+          <ProductFillCards />
         ) : active === "online" ? (
           <Online />
+        ) : active === "pricing" ? (
+          <Price />
+        ) : active === "upload" ? (
+          <Upload />
         ) : active === "pos" ? (
           <POS />
         ) : active === "orders" ? (
           <OrdersManager />
-        ) : (
+        ) : active === "credits" ? (
           <CreditsManager />
+        ) : (
+          <PNL />
         )}
       </div>
     </div>

@@ -15,7 +15,8 @@ type Product = {
 
 type CartItem = {
   slug: string;
-  price: number;
+  base_price: number; // default product price
+  price: number; // editable unit price used for sale
   is_weight: boolean;
   qty: number; // units or kg
 };
@@ -299,7 +300,8 @@ export default function POS() {
         ...prev,
         [p.slug]: {
           slug: p.slug,
-          price: Number(p.price) || 0,
+          base_price: Number(p.price) || 0,
+          price: Number(existing?.price ?? p.price) || 0,
           is_weight: !!p.is_weight,
           qty: nextQty,
         },
@@ -329,6 +331,22 @@ export default function POS() {
     setCart((prev) => {
       if (!prev[slug]) return prev;
       return { ...prev, [slug]: { ...prev[slug], qty: safe } };
+    });
+  }
+
+  function setUnitPrice(slug: string, price: number) {
+    setErrorMsg("");
+    setSuccessMsg("");
+
+    const safe = Number(price);
+    if (!Number.isFinite(safe) || safe < 0) {
+      setErrorMsg("Invalid price.");
+      return;
+    }
+
+    setCart((prev) => {
+      if (!prev[slug]) return prev;
+      return { ...prev, [slug]: { ...prev[slug], price: Number(safe.toFixed(2)) } };
     });
   }
 
@@ -711,7 +729,8 @@ export default function POS() {
                       <div>
                         <div style={{ fontWeight: 800 }}>{it.slug}</div>
                         <div style={s.small}>
-                          {it.is_weight ? "kg" : "unit"} • unit {money(it.price)} • stock {max}
+                          {it.is_weight ? "kg" : "unit"} • unit {money(it.price)}
+                          {Number(it.base_price) !== Number(it.price) ? ` (default ${money(it.base_price)})` : ""} • stock {max}
                         </div>
                       </div>
                       <button
@@ -736,6 +755,16 @@ export default function POS() {
                         value={String(it.qty)}
                         onChange={(e) => setQty(it.slug, Number(e.target.value), it.is_weight)}
                         disabled={checkingOut}
+                      />
+                      <input
+                        style={{ ...s.input, width: 160 }}
+                        type="number"
+                        step="0.01"
+                        min={0}
+                        value={String(it.price)}
+                        onChange={(e) => setUnitPrice(it.slug, Number(e.target.value))}
+                        disabled={checkingOut}
+                        placeholder="Unit price"
                       />
                       <span style={s.badge}>Line: {money(line)}</span>
                       <span style={s.badge}>Total: {money(total)}</span>
