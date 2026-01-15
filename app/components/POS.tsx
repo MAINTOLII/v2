@@ -307,6 +307,8 @@ export default function POS() {
         },
       };
     });
+        // collapse search dropdown after adding item
+    setQuery("");
 
     // keep search text for quick repeat scanning; select all text
     setTimeout(() => {
@@ -747,15 +749,87 @@ export default function POS() {
                     </div>
 
                     <div style={s.row}>
-                      <input
-                        style={{ ...s.input, width: 160 }}
-                        type="number"
-                        step={it.is_weight ? "0.25" : "1"}
-                        min={it.is_weight ? 0.01 : 1}
-                        value={String(it.qty)}
-                        onChange={(e) => setQty(it.slug, Number(e.target.value), it.is_weight)}
-                        disabled={checkingOut}
-                      />
+<div
+  style={{
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+  }}
+>
+  <button
+    type="button"
+    aria-label="Decrease quantity"
+    style={{
+      width: 44,
+      height: 44,
+      borderRadius: 12,
+      border: "1px solid #e5e7eb",
+      background: "#fff",
+      fontWeight: 900,
+      fontSize: 18,
+      cursor: checkingOut ? "not-allowed" : "pointer",
+      opacity: checkingOut ? 0.6 : 1,
+    }}
+    disabled={checkingOut}
+    onClick={() => {
+      const step = it.is_weight ? 0.25 : 1;
+      const min = it.is_weight ? 0.01 : 1;
+      const next = Number(it.qty) - step;
+      const safe = Number.isFinite(next) ? next : min;
+      setQty(it.slug, safe < min ? min : safe, it.is_weight);
+    }}
+  >
+    −
+  </button>
+
+  <input
+    inputMode={it.is_weight ? "decimal" : "numeric"}
+    style={{
+      height: 44,
+      width: 90,
+      textAlign: "center",
+      borderRadius: 12,
+      border: "1px solid #e5e7eb",
+      outline: "none",
+      fontSize: 16,
+      fontWeight: 900,
+      background: "#fff",
+      padding: "0 10px",
+    }}
+    type="number"
+    step={it.is_weight ? "0.25" : "1"}
+    min={it.is_weight ? 0.01 : 1}
+    value={String(it.qty)}
+    onChange={(e) => setQty(it.slug, Number(e.target.value), it.is_weight)}
+    disabled={checkingOut}
+  />
+
+  <button
+    type="button"
+    aria-label="Increase quantity"
+    style={{
+      width: 44,
+      height: 44,
+      borderRadius: 12,
+      border: "1px solid #e5e7eb",
+      background: "#fff",
+      fontWeight: 900,
+      fontSize: 18,
+      cursor: checkingOut ? "not-allowed" : "pointer",
+      opacity: checkingOut ? 0.6 : 1,
+    }}
+    disabled={checkingOut}
+    onClick={() => {
+      const step = it.is_weight ? 0.25 : 1;
+      const min = it.is_weight ? 0.01 : 1;
+      const next = Number(it.qty) + step;
+      const safe = Number.isFinite(next) ? next : min;
+      setQty(it.slug, safe, it.is_weight);
+    }}
+  >
+    +
+  </button>
+</div>
                       <input
                         style={{ ...s.input, width: 160 }}
                         type="number"

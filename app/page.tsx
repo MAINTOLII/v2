@@ -16,12 +16,13 @@ type SectionKey = "products" | "fill" | "online" | "pricing" | "upload" | "order
 type NavItem = { key: SectionKey; label: string; icon: string };
 
 const NAV: NavItem[] = [
+    { key: "pos", label: "POS", icon: "🧾" },
+
   { key: "products", label: "Products", icon: "📦" },
-  { key: "fill", label: "Fill Missing", icon: "🧩" },
-  { key: "online", label: "Online", icon: "🌐" },
-  { key: "pricing", label: "Pricing", icon: "💰" },
-  { key: "upload", label: "Upload", icon: "⬆️" },
-  { key: "pos", label: "POS", icon: "🧾" },
+  // { key: "fill", label: "Fill Missing", icon: "🧩" },
+  // { key: "online", label: "Online", icon: "🌐" },
+  // { key: "pricing", label: "Pricing", icon: "💰" },
+  // { key: "upload", label: "Upload", icon: "⬆️" },
   { key: "orders", label: "Orders", icon: "📋" },
   { key: "credits", label: "Credits", icon: "💳" },
   { key: "pnl", label: "P&L", icon: "📈" },

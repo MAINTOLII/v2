@@ -11,7 +11,6 @@ type Product = {
   qty: number;
   cost: number;
   price: number;
-  mrp: number;
   tags: string[];
   is_weight: boolean;
   subsubcategory_id: number | null;
@@ -23,7 +22,6 @@ type ProductForm = {
   qty: string;
   cost: string;
   price: string;
-  mrp: string;
   tagsText: string;
   is_weight: boolean;
   is_online: boolean;
@@ -47,7 +45,7 @@ const s: Record<string, React.CSSProperties> = {
     color: "#111",
     fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif",
   },
-  container: { maxWidth: 1050, margin: "0 auto", display: "grid", gap: 16 },
+  container: { maxWidth: 980, margin: "0 auto", display: "grid", gap: 12 },
   header: {
     display: "flex",
     justifyContent: "space-between",
@@ -67,19 +65,21 @@ const s: Record<string, React.CSSProperties> = {
     background: "#fff",
     whiteSpace: "nowrap",
   },
-  card: { background: "white", border: "1px solid #e5e7eb", borderRadius: 12, padding: 14 },
+  card: { background: "white", border: "1px solid #e5e7eb", borderRadius: 12, padding: 12 },
   cardTitle: { margin: 0, fontSize: 16, fontWeight: 900 },
-  divider: { height: 1, background: "#f1f5f9", border: 0, margin: "10px 0" },
+  divider: { height: 1, background: "#f1f5f9", border: 0, margin: "8px 0" },
+
+  // simpler form layout
   formGrid: {
     display: "grid",
     gap: 10,
-    gridTemplateColumns: "repeat(12, 1fr)",
+    gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
     alignItems: "end",
   },
   field: { display: "grid", gap: 6 },
   label: { fontSize: 12, fontWeight: 900, opacity: 0.9 },
   input: {
-    height: 38,
+    height: 36,
     padding: "8px 10px",
     borderRadius: 10,
     border: "1px solid #e5e7eb",
@@ -87,10 +87,10 @@ const s: Record<string, React.CSSProperties> = {
     fontSize: 14,
     background: "#fff",
   },
-  checkboxRow: { display: "flex", gap: 8, alignItems: "center", height: 38 },
+  checkboxRow: { display: "flex", gap: 8, alignItems: "center", height: 36 },
   row: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" },
   btn: {
-    height: 38,
+    height: 36,
     padding: "0 12px",
     borderRadius: 10,
     border: "1px solid #111",
@@ -101,7 +101,7 @@ const s: Record<string, React.CSSProperties> = {
     whiteSpace: "nowrap",
   },
   btnGhost: {
-    height: 38,
+    height: 36,
     padding: "0 12px",
     borderRadius: 10,
     border: "1px solid #e5e7eb",
@@ -112,7 +112,7 @@ const s: Record<string, React.CSSProperties> = {
     whiteSpace: "nowrap",
   },
   btnDanger: {
-    height: 38,
+    height: 36,
     padding: "0 12px",
     borderRadius: 10,
     border: "1px solid #f1c4c4",
@@ -122,15 +122,17 @@ const s: Record<string, React.CSSProperties> = {
     cursor: "pointer",
     whiteSpace: "nowrap",
   },
+
+  // smaller cards
   grid: {
     display: "grid",
     gap: 10,
-    gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+    gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
   },
   productCard: {
     border: "1px solid #e5e7eb",
     borderRadius: 12,
-    padding: 12,
+    padding: 10,
     background: "#fff",
     display: "grid",
     gap: 8,
@@ -187,9 +189,7 @@ function subLabel(x: Subsubcategory | null | undefined) {
   const so = (x.name_so ?? "").trim();
   const slug = (x.slug ?? "").trim();
   const main = en || so || slug || `#${x.id}`;
-  const extra = [so && so !== en ? so : "", slug && slug !== en ? slug : ""]
-    .filter(Boolean)
-    .join(" • ");
+  const extra = [so && so !== en ? so : "", slug && slug !== en ? slug : ""].filter(Boolean).join(" • ");
   return extra ? `${main} — ${extra}` : main;
 }
 
@@ -208,7 +208,6 @@ export default function ProductManager() {
     qty: "0",
     cost: "0",
     price: "0",
-    mrp: "0",
     tagsText: "",
     is_weight: false,
     is_online: true,
@@ -263,7 +262,7 @@ export default function ProductManager() {
 
     const { data, error } = await supabase
       .from("products")
-      .select("id,slug,qty,cost,price,mrp,tags,is_weight,subsubcategory_id,is_online,created_at")
+      .select("id,slug,qty,cost,price,tags,is_weight,subsubcategory_id,is_online,created_at")
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -306,7 +305,6 @@ export default function ProductManager() {
       qty: n(form.qty),
       cost: n(form.cost),
       price: n(form.price),
-      mrp: n(form.mrp),
       tags: parseTags(form.tagsText),
       is_weight: form.is_weight,
       is_online: form.is_online,
@@ -326,7 +324,6 @@ export default function ProductManager() {
       qty: "0",
       cost: "0",
       price: "0",
-      mrp: "0",
       tagsText: "",
       is_weight: false,
       is_online: true,
@@ -381,7 +378,7 @@ export default function ProductManager() {
           <hr style={s.divider} />
 
           <div style={s.formGrid}>
-            <div style={{ ...s.field, gridColumn: "span 4" }}>
+            <div style={s.field}>
               <label style={s.label}>Product name (slug)</label>
               <input
                 style={s.input}
@@ -389,30 +386,9 @@ export default function ProductManager() {
                 value={form.slug}
                 onChange={(e) => setForm((f) => ({ ...f, slug: e.target.value }))}
               />
-              <div style={s.muted}>Tip: use a simple readable name; tags handle Somali/English search.</div>
             </div>
 
-            <div style={{ ...s.field, gridColumn: "span 2" }}>
-              <label style={s.label}>Stock (qty)</label>
-              <input
-                style={s.input}
-                type="number"
-                value={form.qty}
-                onChange={(e) => setForm((f) => ({ ...f, qty: e.target.value }))}
-              />
-            </div>
-
-            <div style={{ ...s.field, gridColumn: "span 2" }}>
-              <label style={s.label}>Cost</label>
-              <input
-                style={s.input}
-                type="number"
-                value={form.cost}
-                onChange={(e) => setForm((f) => ({ ...f, cost: e.target.value }))}
-              />
-            </div>
-
-            <div style={{ ...s.field, gridColumn: "span 2" }}>
+            <div style={s.field}>
               <label style={s.label}>Price</label>
               <input
                 style={s.input}
@@ -422,17 +398,27 @@ export default function ProductManager() {
               />
             </div>
 
-            <div style={{ ...s.field, gridColumn: "span 2" }}>
-              <label style={s.label}>MRP</label>
+            <div style={s.field}>
+              <label style={s.label}>Cost</label>
               <input
                 style={s.input}
                 type="number"
-                value={form.mrp}
-                onChange={(e) => setForm((f) => ({ ...f, mrp: e.target.value }))}
+                value={form.cost}
+                onChange={(e) => setForm((f) => ({ ...f, cost: e.target.value }))}
               />
             </div>
 
-            <div style={{ ...s.field, gridColumn: "span 4" }}>
+            <div style={s.field}>
+              <label style={s.label}>Stock (qty)</label>
+              <input
+                style={s.input}
+                type="number"
+                value={form.qty}
+                onChange={(e) => setForm((f) => ({ ...f, qty: e.target.value }))}
+              />
+            </div>
+
+            <div style={s.field}>
               <label style={s.label}>Tags (comma separated)</label>
               <input
                 style={s.input}
@@ -442,7 +428,7 @@ export default function ProductManager() {
               />
             </div>
 
-            <div style={{ ...s.field, gridColumn: "span 2" }}>
+            <div style={s.field}>
               <label style={s.label}>Type</label>
               <div style={s.checkboxRow}>
                 <input
@@ -454,7 +440,7 @@ export default function ProductManager() {
               </div>
             </div>
 
-            <div style={{ ...s.field, gridColumn: "span 3" }}>
+            <div style={s.field}>
               <label style={s.label}>Availability</label>
               <div style={s.checkboxRow}>
                 <input
@@ -468,16 +454,12 @@ export default function ProductManager() {
               </div>
             </div>
 
-            <div style={{ ...s.field, gridColumn: "span 5" }}>
+            <div style={s.field}>
               <label style={s.label}>Subsubcategory (type 2+ letters)</label>
               <div ref={subBoxRef} style={s.acWrap}>
                 <input
                   style={s.input}
-                  placeholder={
-                    selectedSub
-                      ? subLabel(selectedSub)
-                      : "Start typing... (e.g. rice, bariis, cleaning)"
-                  }
+                  placeholder={selectedSub ? subLabel(selectedSub) : "Start typing..."}
                   value={subQuery}
                   onChange={(e) => {
                     const v = e.target.value;
@@ -536,10 +518,13 @@ export default function ProductManager() {
               </div>
             </div>
 
-            <div style={{ ...s.field, gridColumn: "span 2" }}>
+            <div style={{ ...s.field, alignSelf: "end" }}>
               <button style={{ ...s.btn, opacity: saving ? 0.7 : 1 }} onClick={create} disabled={saving}>
                 {saving ? "Saving…" : "Create"}
               </button>
+              <div style={{ fontSize: 12, opacity: 0.7, marginTop: 6 }}>
+                Tip: Keep slug simple. Use tags for Somali/English search.
+              </div>
             </div>
           </div>
         </section>
@@ -559,10 +544,8 @@ export default function ProductManager() {
                   <div key={p.id} style={s.productCard}>
                     <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" }}>
                       <div>
-                        <div style={{ fontWeight: 900, fontSize: 15 }}>{p.slug}</div>
-                        <div style={s.muted}>
-                          {sub ? `Subsubcategory: ${subLabel(sub)}` : "Subsubcategory: (none)"}
-                        </div>
+                        <div style={{ fontWeight: 900, fontSize: 14 }}>{p.slug}</div>
+                        <div style={s.muted}>{sub ? `Subsubcategory: ${subLabel(sub)}` : "Subsubcategory: (none)"}</div>
                       </div>
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
                         <span style={s.badge}>{p.is_weight ? "Weight" : "Unit"}</span>
@@ -574,17 +557,14 @@ export default function ProductManager() {
                       <span style={s.badge}>Stock: {Number(p.qty ?? 0)}</span>
                       <span style={s.badge}>Cost: {Number(p.cost ?? 0)}</span>
                       <span style={s.badge}>Price: {Number(p.price ?? 0)}</span>
-                      <span style={s.badge}>MRP: {Number(p.mrp ?? 0)}</span>
                     </div>
 
-                    <div style={s.muted}>Tags: {(p.tags ?? []).join(", ") || "(none)"}</div>
+                    <div style={{ ...s.muted, lineHeight: 1.3 }}>
+                      Tags: {(p.tags ?? []).join(", ") || "(none)"}
+                    </div>
 
                     <div style={s.row}>
-                      <button
-                        type="button"
-                        style={s.btnGhost}
-                        onClick={() => update(p.slug, { is_online: !p.is_online })}
-                      >
+                      <button type="button" style={s.btnGhost} onClick={() => update(p.slug, { is_online: !p.is_online })}>
                         {p.is_online ? "Make In-store only" : "Make Online"}
                       </button>
 
