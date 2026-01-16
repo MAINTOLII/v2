@@ -4,7 +4,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabase";
 
 type OrderStatus = "pending" | "confirmed" | "completed" | "cancelled";
-type OrderChannel = "website" | "whatsapp" | "pos";
+type StatusFilter = OrderStatus | "late" | "all";
+type ChannelFilter = "all" | "online" | "pos";
 
 type Order = {
   id: string;
@@ -41,6 +42,8 @@ const s: Record<string, React.CSSProperties> = {
   badge: { display: "inline-flex", alignItems: "center", padding: "2px 8px", borderRadius: 999, border: "1px solid #e5e7eb", fontSize: 12, fontWeight: 900, background: "#fff" },
   badgeBtn: { display: "inline-flex", alignItems: "center", padding: "2px 8px", borderRadius: 999, border: "1px solid #e5e7eb", fontSize: 12, fontWeight: 900, background: "#fff", cursor: "pointer" },
   badgeBtnActive: { background: "#111", color: "#fff", border: "1px solid #111" },
+  channelBtn: { height: 34, padding: "0 10px", borderRadius: 999, border: "1px solid #e5e7eb", background: "#fff", color: "#111", fontWeight: 900, cursor: "pointer" },
+  channelBtnActive: { border: "1px solid #111", background: "#111", color: "#fff" },
 
   btn: { height: 38, padding: "0 12px", borderRadius: 10, border: "1px solid #111", background: "#111", color: "#fff", fontWeight: 900, cursor: "pointer" },
   btnGhost: { height: 38, padding: "0 12px", borderRadius: 10, border: "1px solid #e5e7eb", background: "#fff", color: "#111", fontWeight: 900, cursor: "pointer" },
@@ -58,41 +61,79 @@ export default function OrdersManager() {
   const [items, setItems] = useState<Record<string, OrderItem[]>>({});
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<null | { message: string; details?: string; hint?: string; code?: string }>(null);
-  const [statusFilter, setStatusFilter] = useState<OrderStatus | "all">("pending");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("pending");
+  const [channelFilter, setChannelFilter] = useState<ChannelFilter>("all");
 
-  const [counts, setCounts] = useState<Record<OrderStatus, number>>({
+  const [counts, setCounts] = useState<Record<"pending" | "confirmed" | "completed" | "cancelled" | "late", number>>({
     pending: 0,
     confirmed: 0,
     completed: 0,
     cancelled: 0,
+    late: 0,
   });
 
-  async function loadCounts() {
+  async function loadCounts(nextChannel?: ChannelFilter) {
+    const ch = nextChannel ?? channelFilter;
     const statuses: OrderStatus[] = ["pending", "confirmed", "completed", "cancelled"];
-    const next: Record<OrderStatus, number> = { pending: 0, confirmed: 0, completed: 0, cancelled: 0 };
+    const next: Record<"pending" | "confirmed" | "completed" | "cancelled" | "late", number> = {
+      pending: 0,
+      confirmed: 0,
+      completed: 0,
+      cancelled: 0,
+      late: 0,
+    };
+
+    const applyChannel = (q: any) => {
+      if (ch === "pos") return q.eq("channel", "pos");
+      if (ch === "online") return q.in("channel", ["website", "whatsapp"]);
+      return q;
+    };
 
     await Promise.all(
       statuses.map(async (st) => {
-        const { count } = await supabase
-          .from("orders")
-          .select("id", { count: "exact", head: true })
-          .eq("status", st);
+        const base = supabase.from("orders").select("id", { count: "exact", head: true }).eq("status", st);
+        const { count } = await applyChannel(base);
         next[st] = count ?? 0;
       })
     );
 
+    // Late = pending for more than 1 hour
+    const cutoff = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const lateBase = supabase
+      .from("orders")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "pending")
+      .lt("created_at", cutoff);
+    const { count: lateCount } = await applyChannel(lateBase);
+    next.late = lateCount ?? 0;
+
     setCounts(next);
   }
 
-  async function load(nextFilter?: OrderStatus | "all") {
-    setLoading(true);
-    setErrorMsg(null);
-    await loadCounts();
+  async function load(nextFilter?: StatusFilter, nextChannel?: ChannelFilter) {
+    const activeChannel = nextChannel ?? channelFilter;
+    await loadCounts(activeChannel);
 
     const activeFilter = nextFilter ?? statusFilter;
-    const q = supabase.from("orders").select("*").order("created_at", { ascending: false });
-    const { data: orderRows, error: orderErr } =
-      activeFilter === "all" ? await q : await q.eq("status", activeFilter);
+
+    const applyChannel = (q: any) => {
+      if (activeChannel === "pos") return q.eq("channel", "pos");
+      if (activeChannel === "online") return q.in("channel", ["website", "whatsapp"]);
+      return q;
+    };
+
+    let q: any = supabase.from("orders").select("*").order("created_at", { ascending: false });
+    q = applyChannel(q);
+
+    // "late" = pending older than 1 hour
+    if (activeFilter === "late") {
+      const cutoff = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+      q = q.eq("status", "pending").lt("created_at", cutoff);
+    } else if (activeFilter !== "all") {
+      q = q.eq("status", activeFilter);
+    }
+
+    const { data: orderRows, error: orderErr } = await q;
 
     if (orderErr) {
       setErrorMsg({ message: orderErr.message, details: (orderErr as any).details, hint: (orderErr as any).hint, code: (orderErr as any).code });
@@ -132,7 +173,10 @@ export default function OrdersManager() {
     setLoading(false);
   }
 
-  useEffect(() => { load(); }, [statusFilter]);
+  useEffect(() => {
+    load(statusFilter, channelFilter);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusFilter, channelFilter]);
 
   async function confirmOrder(orderId: string) {
     setErrorMsg(null);
@@ -143,7 +187,7 @@ export default function OrdersManager() {
     }
     if (!error) {
       setStatusFilter("confirmed");
-      await load("confirmed");
+      await load("confirmed", channelFilter);
       return;
     }
     await load();
@@ -158,7 +202,7 @@ export default function OrdersManager() {
     }
     if (!error) {
       setStatusFilter("completed");
-      await load("completed");
+      await load("completed", channelFilter);
       return;
     }
     await load();
@@ -173,7 +217,7 @@ export default function OrdersManager() {
     }
     if (!error) {
       setStatusFilter("cancelled");
-      await load("cancelled");
+      await load("cancelled", channelFilter);
       return;
     }
     await load();
@@ -187,6 +231,14 @@ export default function OrdersManager() {
 
   return (
     <main style={s.page}>
+      <style jsx global>{`
+        @keyframes pendingFlash {
+          0% { transform: scale(1); opacity: 1; }
+          50% { transform: scale(1.03); opacity: 0.55; }
+          100% { transform: scale(1); opacity: 1; }
+        }
+        .pending-flash { animation: pendingFlash 1s infinite; }
+      `}</style>
       <div style={s.container}>
         <div style={s.header}>
           <div>
@@ -197,10 +249,42 @@ export default function OrdersManager() {
           <div style={s.row}>
             <button
               type="button"
+              style={{ ...s.channelBtn, ...(channelFilter === "all" ? s.channelBtnActive : null) }}
+              onClick={() => setChannelFilter("all")}
+            >
+              all channels
+            </button>
+            <button
+              type="button"
+              style={{ ...s.channelBtn, ...(channelFilter === "online" ? s.channelBtnActive : null) }}
+              onClick={() => setChannelFilter("online")}
+            >
+              online
+            </button>
+            <button
+              type="button"
+              style={{ ...s.channelBtn, ...(channelFilter === "pos" ? s.channelBtnActive : null) }}
+              onClick={() => setChannelFilter("pos")}
+            >
+              pos
+            </button>
+
+            <span style={{ width: 1, height: 20, background: "#e5e7eb" }} />
+
+            <button
+              type="button"
+              className={counts.pending > 0 ? "pending-flash" : undefined}
               style={{ ...s.badgeBtn, ...(statusFilter === "pending" ? s.badgeBtnActive : null) }}
               onClick={() => setStatusFilter("pending")}
             >
               pending: {counts.pending ?? 0}
+            </button>
+            <button
+              type="button"
+              style={{ ...s.badgeBtn, ...(statusFilter === "late" ? s.badgeBtnActive : null) }}
+              onClick={() => setStatusFilter("late")}
+            >
+              late: {counts.late ?? 0}
             </button>
             <button
               type="button"
@@ -269,6 +353,7 @@ export default function OrdersManager() {
                         </div>
                         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                           <span style={s.badge}>status: {o.status}</span>
+                          {statusFilter === "late" ? <span style={s.badge}>late</span> : null}
                           <span style={s.badge}>total: {money(Number(o.total) || 0)}</span>
                           <span style={s.badge}>profit: {money(Number((o as any).profit) || 0)}</span>
                           <span style={s.badge}>items: {its.length}</span>

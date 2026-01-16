@@ -31,6 +31,13 @@ type ProductRow = {
   price: number;
 };
 
+type ExpenseRow = {
+  id: string;
+  amount: number;
+  currency: string;
+  expense_date: string;
+};
+
 const s: Record<string, React.CSSProperties> = {
   page: { padding: 16, background: "#fafafa", minHeight: "100vh", color: "#111", fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif" },
   container: { maxWidth: 1100, margin: "0 auto", display: "grid", gap: 12 },
@@ -96,6 +103,7 @@ export default function PNL() {
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [items, setItems] = useState<OrderItemRow[]>([]);
   const [lowStock, setLowStock] = useState<ProductRow[]>([]);
+  const [expenses, setExpenses] = useState<ExpenseRow[]>([]);
 
   const range = useMemo(() => getRange(period), [period]);
 
@@ -119,6 +127,7 @@ export default function PNL() {
       setErr(oRes.error.message);
       setOrders([]);
       setItems([]);
+      setExpenses([]);
       setLoading(false);
       return;
     }
@@ -140,11 +149,33 @@ export default function PNL() {
       if (iRes.error) {
         setErr(iRes.error.message);
         setItems([]);
+        setExpenses([]);
         setLoading(false);
         return;
       }
 
       setItems((iRes.data ?? []) as any as OrderItemRow[]);
+    }
+
+    // Expenses within range (USD only)
+    const startDate = start.toISOString().slice(0, 10);
+    const endDate = new Date(end.getTime() - 1).toISOString().slice(0, 10);
+
+    const eRes = await supabase
+      .from("expenses")
+      .select("id,amount,currency,expense_date")
+      .eq("currency", "USD")
+      .gte("expense_date", startDate)
+      .lte("expense_date", endDate)
+      .order("expense_date", { ascending: false })
+      .limit(5000);
+
+    if (eRes.error) {
+      // Do not fail the whole page if expenses table doesn't exist yet
+      console.warn("PNL expenses load error:", eRes.error.message);
+      setExpenses([]);
+    } else {
+      setExpenses((eRes.data ?? []) as any as ExpenseRow[]);
     }
 
     // Low stock list
@@ -157,6 +188,7 @@ export default function PNL() {
     if (pRes.error) {
       setErr(pRes.error.message);
       setLowStock([]);
+      setExpenses([]);
       setLoading(false);
       return;
     }
@@ -180,11 +212,18 @@ export default function PNL() {
     return items.reduce((s, it) => s + Number(it.unit_cost ?? 0) * Number(it.qty ?? 0), 0);
   }, [items, revenue, orderProfit]);
 
+  const expensesTotal = useMemo(
+    () => expenses.reduce((s, e) => s + Number(e.amount ?? 0), 0),
+    [expenses]
+  );
+
   const profit = useMemo(() => {
     // Use orders.profit if available; else revenue-cost
     if (orders.length && orders.some((o) => Number(o.profit ?? 0) !== 0)) return orderProfit;
     return revenue - cost;
   }, [orders, orderProfit, revenue, cost]);
+
+  const netProfit = useMemo(() => profit - expensesTotal, [profit, expensesTotal]);
 
   const topItems = useMemo(() => {
     const map: Record<
@@ -227,7 +266,7 @@ export default function PNL() {
         <div style={s.header}>
           <div>
             <h1 style={s.title}>P&L</h1>
-            <div style={s.small}>Completed orders only • {rangeLabel}</div>
+            <div style={s.small}>Completed orders only • USD expenses included • {rangeLabel}</div>
           </div>
 
           <div style={s.row}>
@@ -265,16 +304,35 @@ export default function PNL() {
             <div style={s.kpiValue}>{money(revenue)}</div>
           </div>
           <div style={{ ...s.kpi, gridColumn: "span 3" }}>
-            <div style={s.kpiLabel}>Cost</div>
+            <div style={s.kpiLabel}>Cost (COGS)</div>
             <div style={s.kpiValue}>{money(cost)}</div>
           </div>
           <div style={{ ...s.kpi, gridColumn: "span 3" }}>
-            <div style={s.kpiLabel}>Profit</div>
-            <div style={s.kpiValue}>{money(profit)}</div>
+            <div style={s.kpiLabel}>Expenses</div>
+            <div style={s.kpiValue}>{money(expensesTotal)}</div>
           </div>
+          <div style={{ ...s.kpi, gridColumn: "span 3" }}>
+            <div style={s.kpiLabel}>Net Profit</div>
+            <div style={s.kpiValue}>{money(netProfit)}</div>
+          </div>
+        </div>
+
+        <div style={s.grid}>
           <div style={{ ...s.kpi, gridColumn: "span 3" }}>
             <div style={s.kpiLabel}>Orders</div>
             <div style={s.kpiValue}>{orders.length}</div>
+          </div>
+          <div style={{ ...s.kpi, gridColumn: "span 3" }}>
+            <div style={s.kpiLabel}>Gross Profit</div>
+            <div style={s.kpiValue}>{money(profit)}</div>
+          </div>
+          <div style={{ ...s.kpi, gridColumn: "span 3" }}>
+            <div style={s.kpiLabel}>Avg order</div>
+            <div style={s.kpiValue}>{money(orders.length ? revenue / orders.length : 0)}</div>
+          </div>
+          <div style={{ ...s.kpi, gridColumn: "span 3" }}>
+            <div style={s.kpiLabel}>Expense % of revenue</div>
+            <div style={s.kpiValue}>{orders.length && revenue > 0 ? `${((expensesTotal / revenue) * 100).toFixed(1)}%` : "0.0%"}</div>
           </div>
         </div>
 
