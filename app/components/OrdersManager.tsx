@@ -6,6 +6,7 @@ import { supabase } from "../../lib/supabase";
 type OrderStatus = "pending" | "confirmed" | "completed" | "cancelled";
 type StatusFilter = OrderStatus | "late" | "all";
 type ChannelFilter = "all" | "online" | "pos";
+type OrderChannel = "pos" | "website" | "whatsapp";
 
 type Order = {
   id: string;
