@@ -270,15 +270,14 @@ export default function QtyCost() {
                 return (
                   <div
                     key={p.id}
-                    className="grid grid-cols-1 md:grid-cols-12 md:items-center gap-2 px-3 py-3 border-b border-gray-50"
+                    className="grid grid-cols-12 items-center gap-2 px-3 py-2 border-b border-gray-50"
                   >
-                    <div className="md:col-span-6">
+                    <div className="col-span-6">
                       <div className="text-sm font-extrabold text-gray-900 truncate">{p.slug}</div>
                       <div className="text-[11px] text-gray-500">Current: qty {formatNum(p.qty)} • cost {formatNum(p.cost)}</div>
                     </div>
 
-                    <div className="md:col-span-2">
-                      <div className="md:hidden text-[11px] font-extrabold text-gray-600 mb-1">Qty</div>
+                    <div className="col-span-2">
                       <input
                         value={qtyVal}
                         inputMode="decimal"
@@ -286,14 +285,13 @@ export default function QtyCost() {
                         onKeyDown={(ev) => {
                           if (ev.key === "Enter") saveOne(p);
                         }}
-                        className={`h-11 md:h-10 w-full rounded-xl border px-3 md:px-2 text-left md:text-right text-sm outline-none focus:ring-2 focus:ring-[#0B6EA9]/20 ${
+                        className={`h-10 w-full rounded-xl border px-2 text-right text-sm outline-none focus:ring-2 focus:ring-[#0B6EA9]/20 ${
                           qtyBad ? "border-red-300 focus:border-red-400" : "border-gray-200 focus:border-[#0B6EA9]"
                         }`}
                       />
                     </div>
 
-                    <div className="md:col-span-2">
-                      <div className="md:hidden text-[11px] font-extrabold text-gray-600 mb-1">Cost</div>
+                    <div className="col-span-2">
                       <input
                         value={costVal}
                         inputMode="decimal"
@@ -301,35 +299,20 @@ export default function QtyCost() {
                         onKeyDown={(ev) => {
                           if (ev.key === "Enter") saveOne(p);
                         }}
-                        className={`h-11 md:h-10 w-full rounded-xl border px-3 md:px-2 text-left md:text-right text-sm outline-none focus:ring-2 focus:ring-[#0B6EA9]/20 ${
+                        className={`h-10 w-full rounded-xl border px-2 text-right text-sm outline-none focus:ring-2 focus:ring-[#0B6EA9]/20 ${
                           costBad ? "border-red-300 focus:border-red-400" : "border-gray-200 focus:border-[#0B6EA9]"
                         }`}
                       />
                     </div>
 
-                    <div className="md:col-span-2 flex flex-col md:flex-row justify-stretch md:justify-end gap-2">
+                    <div className="col-span-2 flex justify-end gap-2">
                       <button
                         type="button"
-                        className="h-11 md:h-10 w-full md:w-auto rounded-xl border border-gray-200 bg-white px-3 text-sm font-extrabold text-gray-900 active:scale-[0.99] disabled:opacity-50"
+                        className="h-10 rounded-xl border border-gray-200 bg-white px-3 text-sm font-extrabold text-gray-900 active:scale-[0.99] disabled:opacity-50"
                         disabled={isRowSaving || (!rowDirty && !e.qty && !e.cost) || qtyBad || costBad}
                         onClick={() => saveOne(p)}
                       >
                         {isRowSaving ? "Saving…" : "Save"}
-                      </button>
-
-                      <button
-                        type="button"
-                        className="h-11 md:h-10 w-full md:w-auto rounded-xl border border-gray-200 bg-white px-2 text-sm font-extrabold text-gray-500 active:scale-[0.99]"
-                        onClick={() =>
-                          setEdits((prev) => {
-                            const cp = { ...prev };
-                            delete cp[p.id];
-                            return cp;
-                          })
-                        }
-                        title="Reset edits"
-                      >
-                        ↺
                       </button>
                     </div>
                   </div>

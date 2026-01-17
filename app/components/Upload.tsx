@@ -27,12 +27,25 @@ const STORAGE_BASE_URL =
   "https://swrgqktuatubssvwjkyx.supabase.co/storage/v1/object/public/product-images";
 const BUCKET = "product-images";
 
-function normalizeSlug(v: string) {
-  return (v ?? "")
-    .trim()
+function normalizeSpaces(v: string) {
+  return (v ?? "").trim().replace(/\s+/g, " ");
+}
+
+// Create a filename from the product slug that keeps spaces + dots.
+// Example: "saafi water 1.5l" -> "saafi water 1.5.webp"
+function productNameToWebpFileName(slug: string) {
+  const base = normalizeSpaces(slug)
     .toLowerCase()
-    .replace(/\s+/g, "-")
-    .replace(/[^a-z0-9\-_.]/g, "");
+    // remove characters that break paths, keep letters/numbers/space/dot
+    .replace(/[^a-z0-9 .]/g, "")
+    .trim();
+
+  // If the name ends with something like " 1.5l" and you want " 1.5" (remove trailing single-letter unit),
+  // strip a trailing single letter when it follows a number.
+  const withoutUnit = base.replace(/(\d)\s*[a-z]$/i, "$1");
+
+  const finalBase = withoutUnit.trim();
+  return `${finalBase}.webp`;
 }
 
 function parseTagsInput(v: string): string[] {
@@ -151,14 +164,15 @@ export default function Upload() {
       return;
     }
 
-    const safeSlug = normalizeSlug(selected.slug);
-    if (!safeSlug) {
-      setErr("Invalid product slug.");
+    const fileName = productNameToWebpFileName(selected.slug);
+    if (!fileName || fileName === ".webp") {
+      setErr("Invalid product name.");
       return;
     }
 
-    const path = `products/${safeSlug}.webp`;
-    const publicUrl = `${STORAGE_BASE_URL}/${path}`;
+    const path = `products/${fileName}`;
+    // encode spaces etc. for browser URL, but keep the slash
+    const publicUrl = `${STORAGE_BASE_URL}/${encodeURI(path)}`;
 
     setImgUploading(true);
     try {
@@ -182,7 +196,7 @@ export default function Upload() {
       const updated: ProductRow = { ...selected, img: publicUrl };
       setSelected(updated);
       setResults((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
-      setImgFileName(`${safeSlug}.webp`);
+      setImgFileName(fileName);
       setOk("Image uploaded + saved ✅");
     } catch (e: any) {
       setErr(e?.message ?? "Image upload failed");
@@ -301,7 +315,7 @@ export default function Upload() {
                 <div className="rounded-xl border border-gray-200 bg-white p-3">
                   <div className="text-[11px] font-extrabold text-gray-700">Product Image (WEBP)</div>
                   <div className="mt-1 text-[11px] text-gray-500 break-words">
-                    Will upload to: <span className="font-mono">products/{normalizeSlug(selected.slug)}.webp</span>
+                    Will upload to: <span className="font-mono">products/{productNameToWebpFileName(selected.slug)}</span>
                   </div>
 
                   <div className="mt-2 flex flex-col gap-2">
