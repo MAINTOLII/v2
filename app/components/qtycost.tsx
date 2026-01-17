@@ -8,6 +8,7 @@ type ProductRow = {
   slug: string;
   qty: number;
   cost: number;
+  price: number;
 };
 
 function numOrNull(v: string): number | null {
@@ -34,7 +35,7 @@ export default function QtyCost() {
   const [q, setQ] = useState("");
 
   // edits keyed by product id
-  const [edits, setEdits] = useState<Record<string, { qty?: string; cost?: string }>>({});
+  const [edits, setEdits] = useState<Record<string, { qty?: string; cost?: string; price?: string }>>({});
 
   const searchRef = useRef<HTMLInputElement | null>(null);
 
@@ -50,7 +51,7 @@ export default function QtyCost() {
     try {
       const res = await supabase
         .from("products")
-        .select("id,slug,qty,cost")
+        .select("id,slug,qty,cost,price")
         .order("slug", { ascending: true })
         .limit(5000);
 
@@ -65,6 +66,7 @@ export default function QtyCost() {
             slug: String(r.slug ?? ""),
             qty: Number(r.qty ?? 0),
             cost: Number(r.cost ?? 0),
+            price: Number(r.price ?? 0),
           }))
       );
     } catch (e: any) {
@@ -103,6 +105,11 @@ export default function QtyCost() {
     return e?.cost ?? formatNum(p.cost);
   }
 
+  function getDisplayPrice(p: ProductRow) {
+    const e = edits[p.id];
+    return e?.price ?? formatNum(p.price);
+  }
+
   const dirtyIds = useMemo(() => {
     const ids: string[] = [];
     for (const p of filtered) {
@@ -110,11 +117,13 @@ export default function QtyCost() {
       if (!e) continue;
       const nq = e.qty != null ? numOrNull(e.qty) : null;
       const nc = e.cost != null ? numOrNull(e.cost) : null;
+      const np = e.price != null ? numOrNull(e.price) : null;
 
       const qtyDirty = e.qty != null && nq != null && nq !== p.qty;
       const costDirty = e.cost != null && nc != null && nc !== p.cost;
+      const priceDirty = e.price != null && np != null && np !== p.price;
 
-      if (qtyDirty || costDirty) ids.push(p.id);
+      if (qtyDirty || costDirty || priceDirty) ids.push(p.id);
     }
     return ids;
   }, [edits, filtered]);
@@ -125,12 +134,14 @@ export default function QtyCost() {
     const e = edits[p.id];
     const nextQty = e?.qty != null ? numOrNull(e.qty) : null;
     const nextCost = e?.cost != null ? numOrNull(e.cost) : null;
+    const nextPrice = e?.price != null ? numOrNull(e.price) : null;
 
     // If user didn't change anything, do nothing
     const qtyChanged = nextQty != null && nextQty !== p.qty;
     const costChanged = nextCost != null && nextCost !== p.cost;
+    const priceChanged = nextPrice != null && nextPrice !== p.price;
 
-    if (!qtyChanged && !costChanged) {
+    if (!qtyChanged && !costChanged && !priceChanged) {
       // clear harmless edits to keep UI clean
       setEdits((prev) => {
         const cp = { ...prev };
@@ -149,6 +160,10 @@ export default function QtyCost() {
       setErr("Cost cannot be negative");
       return;
     }
+    if (priceChanged && (nextPrice as number) < 0) {
+      setErr("Price cannot be negative");
+      return;
+    }
 
     setSaving((prev) => ({ ...prev, [p.id]: true }));
 
@@ -156,13 +171,23 @@ export default function QtyCost() {
       const payload: any = {};
       if (qtyChanged) payload.qty = nextQty;
       if (costChanged) payload.cost = nextCost;
+      if (priceChanged) payload.price = nextPrice;
 
       const res = await supabase.from("products").update(payload).eq("id", p.id);
       if (res.error) throw res.error;
 
       // update local list
       setProducts((prev) =>
-        prev.map((x) => (x.id === p.id ? { ...x, qty: qtyChanged ? (nextQty as number) : x.qty, cost: costChanged ? (nextCost as number) : x.cost } : x))
+        prev.map((x) =>
+          x.id === p.id
+            ? {
+                ...x,
+                qty: qtyChanged ? (nextQty as number) : x.qty,
+                cost: costChanged ? (nextCost as number) : x.cost,
+                price: priceChanged ? (nextPrice as number) : x.price,
+              }
+            : x
+        )
       );
 
       // clear edits for this row
@@ -237,11 +262,12 @@ export default function QtyCost() {
         </div>
 
         <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-          <div className="hidden md:grid grid-cols-12 gap-2 border-b border-gray-100 bg-gray-50 px-3 py-2 text-xs font-extrabold text-gray-600">
-            <div className="col-span-6">Product</div>
+          <div className="hidden md:grid grid-cols-12 gap-1 border-b border-gray-100 bg-gray-50 px-2 py-2 text-xs font-extrabold text-gray-600">
+            <div className="col-span-3">Product</div>
             <div className="col-span-2 text-right">Qty</div>
             <div className="col-span-2 text-right">Cost</div>
-            <div className="col-span-2 text-right">Action</div>
+            <div className="col-span-2 text-right">Price</div>
+            <div className="col-span-3 text-right">Action</div>
           </div>
 
           {loading ? (
@@ -256,25 +282,29 @@ export default function QtyCost() {
 
                 const qtyVal = getDisplayQty(p);
                 const costVal = getDisplayCost(p);
+                const priceVal = getDisplayPrice(p);
 
                 const qtyNum = numOrNull(qtyVal);
                 const costNum = numOrNull(costVal);
+                const priceNum = numOrNull(priceVal);
 
                 const qtyBad = qtyVal.trim().length > 0 && qtyNum === null;
                 const costBad = costVal.trim().length > 0 && costNum === null;
+                const priceBad = priceVal.trim().length > 0 && priceNum === null;
 
                 const qtyChanged = qtyNum != null && qtyNum !== p.qty;
                 const costChanged = costNum != null && costNum !== p.cost;
-                const rowDirty = qtyChanged || costChanged;
+                const priceChanged = priceNum != null && priceNum !== p.price;
+                const rowDirty = qtyChanged || costChanged || priceChanged;
 
                 return (
                   <div
                     key={p.id}
-                    className="grid grid-cols-12 items-center gap-2 px-3 py-2 border-b border-gray-50"
+                    className="grid grid-cols-12 items-center gap-1 px-2 py-1.5 border-b border-gray-50"
                   >
-                    <div className="col-span-6">
-                      <div className="text-sm font-extrabold text-gray-900 truncate">{p.slug}</div>
-                      <div className="text-[11px] text-gray-500">Current: qty {formatNum(p.qty)} • cost {formatNum(p.cost)}</div>
+                    <div className="col-span-3">
+                      <div className="text-xs font-extrabold text-gray-900 truncate">{p.slug}</div>
+                      <div className="text-[11px] text-gray-500">Current: qty {formatNum(p.qty)} • cost {formatNum(p.cost)} • price {formatNum(p.price)}</div>
                     </div>
 
                     <div className="col-span-2">
@@ -285,7 +315,7 @@ export default function QtyCost() {
                         onKeyDown={(ev) => {
                           if (ev.key === "Enter") saveOne(p);
                         }}
-                        className={`h-10 w-full rounded-xl border px-2 text-right text-sm outline-none focus:ring-2 focus:ring-[#0B6EA9]/20 ${
+                        className={`h-9 w-full rounded-xl border px-2 text-right text-sm outline-none focus:ring-2 focus:ring-[#0B6EA9]/20 ${
                           qtyBad ? "border-red-300 focus:border-red-400" : "border-gray-200 focus:border-[#0B6EA9]"
                         }`}
                       />
@@ -299,17 +329,33 @@ export default function QtyCost() {
                         onKeyDown={(ev) => {
                           if (ev.key === "Enter") saveOne(p);
                         }}
-                        className={`h-10 w-full rounded-xl border px-2 text-right text-sm outline-none focus:ring-2 focus:ring-[#0B6EA9]/20 ${
+                        className={`h-9 w-full rounded-xl border px-2 text-right text-sm outline-none focus:ring-2 focus:ring-[#0B6EA9]/20 ${
                           costBad ? "border-red-300 focus:border-red-400" : "border-gray-200 focus:border-[#0B6EA9]"
                         }`}
                       />
                     </div>
 
-                    <div className="col-span-2 flex justify-end gap-2">
+                    <div className="col-span-2">
+                      <input
+                        value={getDisplayPrice(p)}
+                        inputMode="decimal"
+                        onChange={(ev) =>
+                          setEdits((prev) => ({ ...prev, [p.id]: { ...prev[p.id], price: ev.target.value } }))
+                        }
+                        onKeyDown={(ev) => {
+                          if (ev.key === "Enter") saveOne(p);
+                        }}
+                        className={`h-9 w-full rounded-xl border px-2 text-right text-sm outline-none focus:ring-2 focus:ring-[#0B6EA9]/20 ${
+                          false ? "border-red-300 focus:border-red-400" : "border-gray-200 focus:border-[#0B6EA9]"
+                        }`}
+                      />
+                    </div>
+
+                    <div className="col-span-3 flex justify-end">
                       <button
                         type="button"
-                        className="h-10 rounded-xl border border-gray-200 bg-white px-3 text-sm font-extrabold text-gray-900 active:scale-[0.99] disabled:opacity-50"
-                        disabled={isRowSaving || (!rowDirty && !e.qty && !e.cost) || qtyBad || costBad}
+                        className="h-9 min-w-[78px] rounded-xl border border-gray-200 bg-white px-2.5 text-sm font-extrabold text-gray-900 active:scale-[0.99] disabled:opacity-50"
+                        disabled={isRowSaving || (!rowDirty && !e.qty && !e.cost && !e.price) || qtyBad || costBad || priceBad}
                         onClick={() => saveOne(p)}
                       >
                         {isRowSaving ? "Saving…" : "Save"}

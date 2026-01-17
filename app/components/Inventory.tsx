@@ -7,9 +7,11 @@ import { supabase } from "../../lib/supabase";
 
 type ProductRow = {
   id: string;
-  slug: string;
-  qty: number;
-  cost: number;
+  slug: string | null;
+  name_en: string | null;
+  name_so: string | null;
+  qty: number | null;
+  cost: number | null;
 };
 
 type MovementRow = {
@@ -107,16 +109,18 @@ export default function Inventory() {
     const qq = q.trim().toLowerCase();
     if (!qq) return products;
     return products.filter((p) => {
+      const a = (p.name_en ?? "").toLowerCase();
+      const b = (p.name_so ?? "").toLowerCase();
       const c = (p.slug ?? "").toLowerCase();
-      return c.includes(qq);
+      return a.includes(qq) || b.includes(qq) || c.includes(qq);
     });
   }, [products, q]);
 
   async function loadProducts() {
     const res = await supabase
       .from("products")
-      .select("id,slug,qty,cost")
-      .order("slug", { ascending: true })
+      .select("id,slug,name_en,name_so,qty,cost")
+      .order("name_en", { ascending: true })
       .limit(5000);
 
     if (res.error) throw res.error;
@@ -339,7 +343,7 @@ export default function Inventory() {
                 <option value="">— choose —</option>
                 {filteredProducts.slice(0, 200).map((p) => (
                   <option key={p.id} value={p.id}>
-                    {(p.slug ?? "Unnamed").slice(0, 60)}
+                    {(p.name_en ?? p.name_so ?? p.slug ?? "Unnamed").slice(0, 60)}
                   </option>
                 ))}
               </select>
@@ -440,7 +444,7 @@ export default function Inventory() {
                 <option value="">All</option>
                 {products.slice(0, 500).map((p) => (
                   <option key={p.id} value={p.id}>
-                    {(p.slug ?? "Unnamed").slice(0, 50)}
+                    {(p.name_en ?? p.name_so ?? p.slug ?? "Unnamed").slice(0, 50)}
                   </option>
                 ))}
               </select>
@@ -472,7 +476,7 @@ export default function Inventory() {
               ) : (
                 movements.map((m) => {
                   const p = productById[m.product_id];
-                  const label = (p?.slug ?? m.product_id).slice(0, 40);
+                  const label = (p?.name_en ?? p?.name_so ?? p?.slug ?? m.product_id).slice(0, 40);
                   return (
                     <tr key={m.id}>
                       <td style={s.td}>{new Date(m.created_at).toLocaleString()}</td>

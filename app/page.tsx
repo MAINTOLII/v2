@@ -25,7 +25,7 @@ const NAV: NavItem[] = [
     { key: "suppliers", label: "Suppliers", icon: "-" },
 
   // { key: "fill", label: "Fill Missing", icon: "🧩" },
-  // { key: "online", label: "Online", icon: "🌐" },
+  { key: "online", label: "PHONE", icon: "🌐" },
   { key: "pricing", label: "Pricing", icon: "💰" },
   { key: "upload", label: "Upload", icon: "⬆️" },
   { key: "orders", label: "Orders", icon: "📋" },

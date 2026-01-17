@@ -225,6 +225,16 @@ export default function PNL() {
 
   const netProfit = useMemo(() => profit - expensesTotal, [profit, expensesTotal]);
 
+  const lowStockWeighted = useMemo(
+    () => lowStock.filter((p) => !!p.is_weight).slice(0, 15),
+    [lowStock]
+  );
+
+  const lowStockUnit = useMemo(
+    () => lowStock.filter((p) => !p.is_weight).slice(0, 15),
+    [lowStock]
+  );
+
   const topItems = useMemo(() => {
     const map: Record<
       string,
@@ -339,28 +349,26 @@ export default function PNL() {
         <div style={s.grid}>
           <div style={{ ...s.card, gridColumn: "span 7" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
-              <div style={{ fontWeight: 700 }}>Most sold items</div>
-              <div style={s.small}>by qty</div>
+              <div style={{ fontWeight: 700 }}>Low stock (Weighted)</div>
+              <div style={s.small}>is_weight = true</div>
             </div>
 
             {loading ? (
               <div style={{ opacity: 0.75, marginTop: 8 }}>Loading…</div>
-            ) : topItems.length === 0 ? (
-              <div style={{ opacity: 0.75, marginTop: 8 }}>No sales in this period.</div>
+            ) : lowStockWeighted.length === 0 ? (
+              <div style={{ opacity: 0.75, marginTop: 8 }}>No weighted items are low on stock.</div>
             ) : (
               <ul style={{ ...s.list, marginTop: 10 }}>
-                {topItems.map((x) => (
-                  <li key={x.slug} style={s.li}>
+                {lowStockWeighted.map((p) => (
+                  <li key={p.id} style={s.li}>
                     <div>
-                      <div style={{ fontWeight: 700 }}>{x.slug}</div>
-                      <div style={s.small}>
-                        Qty: {x.qty.toFixed(x.is_weight ? 2 : 0)}{x.is_weight ? " kg" : ""}
-                      </div>
+                      <div style={{ fontWeight: 700 }}>{p.slug}</div>
+                      <div style={s.small}>Price {money(Number(p.price ?? 0))} per kg</div>
                     </div>
                     <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                      <span style={s.pill}>Rev {money(x.revenue)}</span>
-                      <span style={s.pill}>Cost {money(x.cost)}</span>
-                      <span style={s.pill}>Profit {money(x.revenue - x.cost)}</span>
+                      <span style={s.pill}>
+                        Stock: {Number(p.qty ?? 0).toFixed(2)} kg
+                      </span>
                     </div>
                   </li>
                 ))}
@@ -370,17 +378,17 @@ export default function PNL() {
 
           <div style={{ ...s.card, gridColumn: "span 5" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
-              <div style={{ fontWeight: 700 }}>Low stock</div>
-              <div style={s.small}>lowest qty first</div>
+              <div style={{ fontWeight: 700 }}>Low stock (Unit)</div>
+              <div style={s.small}>is_weight = false</div>
             </div>
 
             {loading ? (
               <div style={{ opacity: 0.75, marginTop: 8 }}>Loading…</div>
-            ) : lowStock.length === 0 ? (
-              <div style={{ opacity: 0.75, marginTop: 8 }}>No products found.</div>
+            ) : lowStockUnit.length === 0 ? (
+              <div style={{ opacity: 0.75, marginTop: 8 }}>No unit items are low on stock.</div>
             ) : (
               <ul style={{ ...s.list, marginTop: 10 }}>
-                {lowStock.map((p) => (
+                {lowStockUnit.map((p) => (
                   <li key={p.id} style={s.li}>
                     <div>
                       <div style={{ fontWeight: 700 }}>{p.slug}</div>
@@ -388,7 +396,7 @@ export default function PNL() {
                     </div>
                     <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
                       <span style={s.pill}>
-                        Stock: {Number(p.qty ?? 0).toFixed(p.is_weight ? 2 : 0)}{p.is_weight ? " kg" : ""}
+                        Stock: {Number(p.qty ?? 0).toFixed(0)}
                       </span>
                     </div>
                   </li>

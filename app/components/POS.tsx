@@ -20,11 +20,14 @@ type CartItem = {
   is_weight: boolean;
   qty: number; // units or kg
 };
-
 type Customer = {
-  id: number;
+  id: string | number;     // BIGINT in DB (may come back as number or string)
   name: string | null;
-  phone: number | null;
+  phone: string | null;    // stored as text like "336454"
+  created_at?: string;
+  is_trusted?: boolean;
+  balance?: string | number;
+  credit_limit?: string | number | null;
 };
 
 type CheckoutMode = "paid" | "credit";
@@ -372,42 +375,51 @@ export default function POS() {
     setCustomerPickOpen(false);
   }
 
-  async function ensureCustomer(phoneText: string) {
-    const norm = phoneText.trim().replace(/\s+/g, "");
-    const existingLocal = customers.find((c) => String(c.phone ?? "") === norm);
-    if (existingLocal) return existingLocal;
+async function ensureCustomer(phoneText: string) {
+  const norm = phoneText.trim().replace(/\s+/g, "");
 
-    const phoneNum = Number(norm);
-    if (!Number.isFinite(phoneNum)) throw new Error("Invalid customer number");
+  // allow any number (3+ digits)
+  if (!/^\d{3,}$/.test(norm)) throw new Error("Invalid customer number");
 
-    // Check DB first to avoid duplicates
-    const { data: found, error: findErr } = await supabase
-      .from("customers")
-      .select("id,name,phone")
-      .eq("phone", phoneNum)
-      .maybeSingle();
+  // local cache
+  const existingLocal = customers.find((c) => String(c.phone ?? "") === norm);
+  if (existingLocal) return existingLocal;
 
-    if (!findErr && found) {
-      const c = found as any as Customer;
-      setCustomers((prev) => {
-        if (prev.some((x) => x.id === c.id)) return prev;
-        return [c, ...prev];
-      });
-      return c;
-    }
+  // DB check (phone is TEXT)
+  const { data: found, error: findErr } = await supabase
+    .from("customers")
+    .select("id,name,phone")
+    .eq("phone", norm)
+    .maybeSingle();
 
-    const { data, error } = await supabase
-      .from("customers")
-      .insert({ phone: phoneNum })
-      .select("id,name,phone")
-      .single();
-
-    if (error) throw error;
-
-    const created = data as any as Customer;
-    setCustomers((prev) => [created, ...prev]);
-    return created;
+  if (!findErr && found) {
+    const c = found as any as Customer;
+    setCustomers((prev) =>
+      prev.some((x) => String(x.id) === String(c.id)) ? prev : [c, ...prev]
+    );
+    return c;
   }
+
+  // create ONLY when checkout calls this
+  // customers.id is BIGINT in your DB, so we use the numeric phone as the id.
+  const phoneNum = Number(norm);
+  if (!Number.isFinite(phoneNum)) throw new Error("Invalid customer number");
+
+  const { data, error } = await supabase
+    .from("customers")
+    .insert({ id: phoneNum, phone: norm })
+    .select("id,name,phone")
+    .single();
+
+  if (error) throw error;
+
+  const created = data as any as Customer;
+  setCustomers((prev) => {
+    if (prev.some((x) => String(x.id) === String(created.id))) return prev;
+    return [created, ...prev];
+  });
+  return created;
+}
 
   async function checkoutPOS(mode: CheckoutMode) {
     // prevent duplicate checkouts (double click / slow network)
@@ -500,7 +512,9 @@ export default function POS() {
       if (mode === "credit") {
         const amount = Number(total.toFixed(2));
         const { error: credErr } = await supabase.from("credits").insert({
-          customer_id: customer?.id ?? null,
+          // NOTE: credits.customer_id is BIGINT in your DB, but customers.id is UUID.
+          // So we do NOT write the UUID into customer_id.
+          customer_id: null,
           customer_phone: Number(phone),
           order_id: orderId,
           amount,
@@ -549,17 +563,17 @@ export default function POS() {
         <div style={s.card}>
           <div ref={customerBoxRef} style={{ position: "relative" }}>
             <div style={s.row}>
-              <input
-                style={{ ...s.input, flex: 1, minWidth: 220 }}
-                placeholder={customerLoading ? "Loading customers…" : "Customer number"}
-                value={customerNumber}
-                onChange={(e) => {
-                  setCustomerNumber(e.target.value);
-                  setCustomerPickOpen(true);
-                }}
-                onFocus={() => setCustomerPickOpen(true)}
-                disabled={checkingOut}
-              />
+<input
+  style={{ ...s.input, flex: 1, minWidth: 220 }}
+  placeholder={customerLoading ? "Loading customers…" : "Customer number"}
+  value={customerNumber}
+  onChange={(e) => {
+    setCustomerNumber(e.target.value);
+    setCustomerPickOpen(true);
+  }}
+  onFocus={() => setCustomerPickOpen(true)}
+  disabled={checkingOut}
+/>
 
               {selectedCustomer ? (
                 <span style={s.badge}>

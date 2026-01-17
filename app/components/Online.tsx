@@ -41,7 +41,6 @@ type Product = {
   qty: number;
   price: number;
   cost: number;
-  mrp: number;
   tags: string[];
   is_weight: boolean;
   is_online: boolean;
@@ -277,7 +276,7 @@ export default function Online() {
 
     const { data, error } = await supabase
       .from("products")
-      .select("id,slug,qty,price,cost,mrp,tags,is_weight,is_online,min_order_qty,qty_step,online_config")
+      .select("id,slug,qty,price,cost,tags,is_weight,is_online,min_order_qty,qty_step,online_config")
       .eq("is_online", true)
       .order("created_at", { ascending: false });
 
@@ -291,6 +290,7 @@ export default function Online() {
     const list = (data ?? []) as Product[];
     const onlineOnly = list.filter((p) => p.is_online);
     setProducts(onlineOnly);
+
 
     setQtyDraft((prev) => {
       const next = { ...prev };
@@ -401,6 +401,21 @@ export default function Online() {
     });
   }
 
+  function setCartUnitPrice(slug: string, unitPrice: number) {
+    setSuccessMsg("");
+    setErrorMsg("");
+
+    if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+      setErrorMsg("Enter a valid unit price (0 or more).");
+      return;
+    }
+
+    setCart((prev) => {
+      if (!prev[slug]) return prev;
+      return { ...prev, [slug]: { ...prev[slug], unit_price: Number(unitPrice) } };
+    });
+  }
+
   function removeFromCart(slug: string) {
     setCart((prev) => {
       const next = { ...prev };
@@ -408,6 +423,7 @@ export default function Online() {
       return next;
     });
   }
+
 
   function clearCart() {
     setCart({});
@@ -651,8 +667,17 @@ export default function Online() {
                           <p style={s.cartSlug}>{item.slug}</p>
                           <div style={s.cartMeta}>
                             <span style={s.badge}>{cfg.is_weight ? "kg" : "pcs"}</span>
-                            <span style={{ marginLeft: 8 }}>
-                              Unit: <b>{money(item.unit_price)}</b> / {cfg.unit}
+                            <span style={{ marginLeft: 8, display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                              Unit:
+                              <input
+                                style={{ ...s.input, height: 34, width: 120 }}
+                                type="number"
+                                step="0.01"
+                                min={0}
+                                value={String(item.unit_price)}
+                                onChange={(e) => setCartUnitPrice(item.slug, parseNum(e.target.value))}
+                              />
+                              <span>/ {cfg.unit}</span>
                             </span>
                           </div>
                         </div>
