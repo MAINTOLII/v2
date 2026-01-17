@@ -1,448 +1,356 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
-import * as XLSX from "xlsx";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../../lib/supabase";
 
 /**
  * Upload.tsx
  *
- * Upload an Excel (.xlsx/.xls) file and bulk insert/update rows into `public.products`.
+ * Mobile-first Product Editor for:
+ * - Edit product tags
+ * - Upload product image (WEBP) to Supabase Storage bucket `product-images`
+ *   at: products/{slug}.webp
+ * - Save the public image URL into `products.img`
  *
- * Columns supported (case-insensitive):
- * - slug (required)
- * - qty, cost, price, mrp
- * - tags (comma-separated OR JSON array)
- * - is_weight, is_online (true/false/1/0/yes/no)
- * - subsubcategory_id
- * - min_order_qty, qty_step
- * - online_config (JSON string or object)
- *
- * Behavior:
- * - If a row's slug already exists, we UPDATE it.
- * - Otherwise we INSERT it.
- *
- * NOTE: Requires `xlsx` package: npm i xlsx
+ * Required public URL format:
+ * https://swrgqktuatubssvwjkyx.supabase.co/storage/v1/object/public/product-images/products/{productname}.webp
  */
 
-type ProductUpsert = {
+type ProductRow = {
+  id: string;
   slug: string;
-  qty?: number;
-  cost?: number;
-  price?: number;
-  mrp?: number;
-  tags?: string[];
-  is_weight?: boolean;
-  is_online?: boolean;
-  subsubcategory_id?: number | null;
-  min_order_qty?: number | null;
-  qty_step?: number | null;
-  online_config?: any;
+  tags: string[] | null;
+  img: string | null;
 };
 
-type ParseResult = {
-  rows: ProductUpsert[];
-  errors: string[];
-};
+const STORAGE_BASE_URL =
+  "https://swrgqktuatubssvwjkyx.supabase.co/storage/v1/object/public/product-images";
+const BUCKET = "product-images";
 
-const s: Record<string, React.CSSProperties> = {
-  page: {
-    padding: 16,
-    background: "#fafafa",
-    minHeight: "100vh",
-    color: "#111",
-    fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif",
-  },
-  container: {
-    maxWidth: 1100,
-    margin: "0 auto",
-    display: "grid",
-    gap: 12,
-  },
-  card: {
-    background: "white",
-    border: "1px solid #e5e7eb",
-    borderRadius: 12,
-    padding: 14,
-  },
-  title: { margin: 0, fontSize: 20, fontWeight: 950 },
-  sub: { margin: 0, marginTop: 4, fontSize: 13, opacity: 0.75 },
-  row: { display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" },
-  input: {
-    height: 40,
-    padding: "8px 10px",
-    borderRadius: 10,
-    border: "1px solid #e5e7eb",
-    background: "#fff",
-  },
-  btn: {
-    height: 40,
-    padding: "0 14px",
-    borderRadius: 10,
-    border: "1px solid #111",
-    background: "#111",
-    color: "#fff",
-    fontWeight: 900,
-    cursor: "pointer",
-  },
-  btnGhost: {
-    height: 40,
-    padding: "0 14px",
-    borderRadius: 10,
-    border: "1px solid #e5e7eb",
-    background: "#fff",
-    color: "#111",
-    fontWeight: 900,
-    cursor: "pointer",
-  },
-  btnDanger: {
-    height: 40,
-    padding: "0 14px",
-    borderRadius: 10,
-    border: "1px solid #fecaca",
-    background: "#fff1f2",
-    color: "#b42318",
-    fontWeight: 900,
-    cursor: "pointer",
-  },
-  err: { color: "#b42318", fontWeight: 900, fontSize: 13 },
-  ok: { color: "#067647", fontWeight: 900, fontSize: 13 },
-  small: { fontSize: 12, opacity: 0.75 },
-  tableWrap: { overflowX: "auto" },
-  table: { width: "100%", borderCollapse: "collapse", fontSize: 13 },
-  th: { textAlign: "left", padding: "10px 8px", borderBottom: "1px solid #e5e7eb", whiteSpace: "nowrap" },
-  td: { padding: "10px 8px", borderBottom: "1px solid #f3f4f6", verticalAlign: "top" },
-  code: { fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" },
-};
-
-function toKey(s: unknown) {
-  return String(s ?? "")
+function normalizeSlug(v: string) {
+  return (v ?? "")
     .trim()
     .toLowerCase()
-    .replace(/\s+/g, "_")
-    .replace(/[^a-z0-9_]/g, "");
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9\-_.]/g, "");
 }
 
-function parseBool(v: unknown): boolean | undefined {
-  if (v == null) return undefined;
-  const s = String(v).trim().toLowerCase();
-  if (!s) return undefined;
-  if (["1", "true", "yes", "y", "on"].includes(s)) return true;
-  if (["0", "false", "no", "n", "off"].includes(s)) return false;
-  return undefined;
-}
-
-function parseNum(v: unknown): number | undefined {
-  if (v == null) return undefined;
-  const s = String(v).trim().replace(",", ".");
-  if (!s) return undefined;
-  const n = Number(s);
-  return Number.isFinite(n) ? n : undefined;
-}
-
-function parseIntMaybe(v: unknown): number | null | undefined {
-  if (v == null) return undefined;
-  const s = String(v).trim();
-  if (!s) return null;
-  const n = Number(s);
-  if (!Number.isFinite(n)) return undefined;
-  return Math.trunc(n);
-}
-
-function parseTags(v: unknown): string[] | undefined {
-  if (v == null) return undefined;
-  if (Array.isArray(v)) return v.map((x) => String(x)).map((x) => x.trim()).filter(Boolean);
-  const raw = String(v).trim();
-  if (!raw) return undefined;
-  // allow JSON array
-  if (raw.startsWith("[") && raw.endsWith("]")) {
-    try {
-      const arr = JSON.parse(raw);
-      if (Array.isArray(arr)) return arr.map((x) => String(x)).map((x) => x.trim()).filter(Boolean);
-    } catch {
-      // fallthrough
-    }
-  }
-  // comma-separated
-  return raw
+function parseTagsInput(v: string): string[] {
+  return (v ?? "")
     .split(",")
     .map((x) => x.trim())
-    .filter(Boolean);
-}
-
-function parseJson(v: unknown): any {
-  if (v == null) return undefined;
-  if (typeof v === "object") return v;
-  const raw = String(v).trim();
-  if (!raw) return undefined;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return undefined;
-  }
-}
-
-function parseExcel(file: File): Promise<ParseResult> {
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        const data = reader.result as ArrayBuffer;
-        const wb = XLSX.read(data, { type: "array" });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const json: any[] = XLSX.utils.sheet_to_json(ws, { defval: "" });
-
-        const rows: ProductUpsert[] = [];
-        const errors: string[] = [];
-
-        for (let i = 0; i < json.length; i++) {
-          const rawRow = json[i] ?? {};
-
-          // normalize keys
-          const r: Record<string, any> = {};
-          for (const k of Object.keys(rawRow)) {
-            r[toKey(k)] = rawRow[k];
-          }
-
-          const slug = String(r.slug ?? r.product ?? r.name ?? "").trim();
-          if (!slug) {
-            errors.push(`Row ${i + 2}: missing slug`);
-            continue;
-          }
-
-          const item: ProductUpsert = { slug };
-
-          const qty = parseNum(r.qty);
-          const cost = parseNum(r.cost);
-          const price = parseNum(r.price);
-          const mrp = parseNum(r.mrp);
-
-          if (qty !== undefined) item.qty = qty;
-          if (cost !== undefined) item.cost = cost;
-          if (price !== undefined) item.price = price;
-          if (mrp !== undefined) item.mrp = mrp;
-
-          const tags = parseTags(r.tags);
-          if (tags !== undefined) item.tags = tags;
-
-          const is_weight = parseBool(r.is_weight);
-          const is_online = parseBool(r.is_online);
-          if (is_weight !== undefined) item.is_weight = is_weight;
-          if (is_online !== undefined) item.is_online = is_online;
-
-          const subsubcategory_id = parseIntMaybe(r.subsubcategory_id);
-          if (subsubcategory_id !== undefined) item.subsubcategory_id = subsubcategory_id;
-
-          const min_order_qty = parseNum(r.min_order_qty);
-          const qty_step = parseNum(r.qty_step);
-          if (min_order_qty !== undefined) item.min_order_qty = min_order_qty;
-          if (qty_step !== undefined) item.qty_step = qty_step;
-
-          const online_config = parseJson(r.online_config);
-          if (online_config !== undefined) item.online_config = online_config;
-
-          rows.push(item);
-        }
-
-        resolve({ rows, errors });
-      } catch (e: any) {
-        resolve({ rows: [], errors: [e?.message ?? "Failed to parse Excel"] });
-      }
-    };
-    reader.onerror = () => resolve({ rows: [], errors: ["Failed to read file"] });
-    reader.readAsArrayBuffer(file);
-  });
+    .filter(Boolean)
+    .slice(0, 100);
 }
 
 export default function Upload() {
-  const [fileName, setFileName] = useState<string>("");
-  const [parsed, setParsed] = useState<ProductUpsert[]>([]);
-  const [parseErrors, setParseErrors] = useState<string[]>([]);
-  const [busy, setBusy] = useState(false);
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<ProductRow[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const [selected, setSelected] = useState<ProductRow | null>(null);
+  const [tagsText, setTagsText] = useState("");
+  const [busySave, setBusySave] = useState(false);
+
+  const [imgUploading, setImgUploading] = useState(false);
+  const [imgFileName, setImgFileName] = useState<string>("");
+
   const [ok, setOk] = useState<string>("");
   const [err, setErr] = useState<string>("");
 
-  const sampleHeaders = useMemo(
-    () =>
-      [
-        "slug",
-        "qty",
-        "cost",
-        "price",
-        "mrp",
-        "tags",
-        "is_weight",
-        "is_online",
-        "subsubcategory_id",
-        "min_order_qty",
-        "qty_step",
-        "online_config",
-      ],
-    []
-  );
+  const searchDebounceRef = useRef<any>(null);
 
-  async function onPickFile(f: File | null) {
+  const tagsPreview = useMemo(() => parseTagsInput(tagsText), [tagsText]);
+
+  useEffect(() => {
+    // Debounced search
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(async () => {
+      const q = query.trim();
+      setOk("");
+      setErr("");
+
+      if (!q) {
+        setResults([]);
+        return;
+      }
+
+      setLoading(true);
+      try {
+        const { data, error } = await supabase
+          .from("products")
+          .select("id,slug,tags,img")
+          .ilike("slug", `%${q}%`)
+          .order("slug", { ascending: true })
+          .limit(30);
+
+        if (error) throw error;
+        setResults((data as ProductRow[]) ?? []);
+      } catch (e: any) {
+        setErr(e?.message ?? "Search failed");
+      } finally {
+        setLoading(false);
+      }
+    }, 250);
+
+    return () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    };
+  }, [query]);
+
+  function onSelect(p: ProductRow) {
+    setSelected(p);
+    setTagsText((p.tags ?? []).join(", "));
+    setImgFileName(p.img ? p.img.split("/").pop() || "" : "");
     setOk("");
     setErr("");
-    setParseErrors([]);
-    setParsed([]);
-
-    if (!f) return;
-
-    setFileName(f.name);
-    const res = await parseExcel(f);
-    setParsed(res.rows);
-    setParseErrors(res.errors);
   }
 
-  async function uploadToDb() {
+  async function saveTagsOnly() {
     setOk("");
     setErr("");
 
-    if (parsed.length === 0) {
-      setErr("No rows to upload.");
+    if (!selected) {
+      setErr("Select a product first.");
       return;
     }
 
-    setBusy(true);
+    setBusySave(true);
     try {
-      // Upsert by slug (unique)
-      // IMPORTANT: Only include fields that are present to avoid overwriting with undefined.
-      const payload = parsed.map((r) => {
-        const out: any = { slug: r.slug };
-        if (r.qty !== undefined) out.qty = r.qty;
-        if (r.cost !== undefined) out.cost = r.cost;
-        if (r.price !== undefined) out.price = r.price;
-        if (r.mrp !== undefined) out.mrp = r.mrp;
-        if (r.tags !== undefined) out.tags = r.tags;
-        if (r.is_weight !== undefined) out.is_weight = r.is_weight;
-        if (r.is_online !== undefined) out.is_online = r.is_online;
-        if (r.subsubcategory_id !== undefined) out.subsubcategory_id = r.subsubcategory_id;
-        if (r.min_order_qty !== undefined) out.min_order_qty = r.min_order_qty;
-        if (r.qty_step !== undefined) out.qty_step = r.qty_step;
-        if (r.online_config !== undefined) out.online_config = r.online_config;
-        return out;
-      });
-
-      const { error } = await supabase.from("products").upsert(payload, { onConflict: "slug" });
+      const tags = parseTagsInput(tagsText);
+      const { error } = await supabase
+        .from("products")
+        .update({ tags })
+        .eq("id", selected.id);
       if (error) throw error;
 
-      setOk(`Uploaded ✅ Rows: ${payload.length}`);
+      const updated: ProductRow = { ...selected, tags };
+      setSelected(updated);
+      setResults((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+      setOk("Saved tags ✅");
     } catch (e: any) {
-      setErr(e?.message ?? "Upload failed");
+      setErr(e?.message ?? "Save failed");
     } finally {
-      setBusy(false);
+      setBusySave(false);
     }
   }
 
-  function reset() {
-    setFileName("");
-    setParsed([]);
-    setParseErrors([]);
+  async function uploadImage(file: File) {
     setOk("");
     setErr("");
+
+    if (!selected) {
+      setErr("Select a product first.");
+      return;
+    }
+
+    // Require WEBP (because you want .webp in the URL)
+    const isWebp = file.type === "image/webp" || file.name.toLowerCase().endsWith(".webp");
+    if (!isWebp) {
+      setErr("Please upload a WEBP image (.webp). Convert it first, then upload.");
+      return;
+    }
+
+    const safeSlug = normalizeSlug(selected.slug);
+    if (!safeSlug) {
+      setErr("Invalid product slug.");
+      return;
+    }
+
+    const path = `products/${safeSlug}.webp`;
+    const publicUrl = `${STORAGE_BASE_URL}/${path}`;
+
+    setImgUploading(true);
+    try {
+      // Upload to bucket with fixed path
+      const { error: upErr } = await supabase.storage
+        .from(BUCKET)
+        .upload(path, file, {
+          upsert: true,
+          contentType: "image/webp",
+          cacheControl: "3600",
+        });
+      if (upErr) throw upErr;
+
+      // Save to products.img
+      const { error: dbErr } = await supabase
+        .from("products")
+        .update({ img: publicUrl })
+        .eq("id", selected.id);
+      if (dbErr) throw dbErr;
+
+      const updated: ProductRow = { ...selected, img: publicUrl };
+      setSelected(updated);
+      setResults((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+      setImgFileName(`${safeSlug}.webp`);
+      setOk("Image uploaded + saved ✅");
+    } catch (e: any) {
+      setErr(e?.message ?? "Image upload failed");
+    } finally {
+      setImgUploading(false);
+    }
   }
 
   return (
-    <main style={s.page}>
-      <div style={s.container}>
-        <section style={s.card}>
-          <h1 style={s.title}>Upload Products (Excel)</h1>
-          <p style={s.sub}>
-            Upload an <b>.xlsx</b> file and it will <b>insert/update</b> rows in <span style={s.code}>public.products</span>.
-          </p>
-
-          <div style={{ ...s.row, marginTop: 10 }}>
-            <input
-              style={s.input}
-              type="file"
-              accept=".xlsx,.xls"
-              onChange={(e) => onPickFile(e.target.files?.[0] ?? null)}
-            />
-            <button style={s.btn} type="button" onClick={uploadToDb} disabled={busy || parsed.length === 0}>
-              {busy ? "Uploading…" : "Upload to DB"}
-            </button>
-            <button style={s.btnGhost} type="button" onClick={reset} disabled={busy}>
-              Clear
-            </button>
+    <main className="min-h-screen bg-[#fafafa] px-4 py-4 text-gray-900">
+      <div className="mx-auto w-full max-w-xl">
+        <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+          <div className="flex flex-col gap-1">
+            <h1 className="text-lg font-extrabold">Product Editor</h1>
+            <p className="text-xs text-gray-500">
+              Search a product by slug, then update <b>tags</b> and upload a <b>WEBP image</b>.
+            </p>
           </div>
 
-          {fileName ? <div style={{ marginTop: 8, ...s.small }}>File: {fileName}</div> : null}
+          <div className="mt-3">
+            <label className="text-[11px] font-extrabold text-gray-700">Search by slug</label>
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder='e.g. "omo" or "yaanyo"'
+              className="mt-1 h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm outline-none focus:border-[#0B6EA9] focus:ring-2 focus:ring-[#0B6EA9]/20"
+            />
+            <div className="mt-2 text-[11px] text-gray-500">
+              {loading ? "Searching…" : query.trim() ? `${results.length} results` : "Type to search"}
+            </div>
+
+            {results.length > 0 ? (
+              <div className="mt-2 max-h-[40vh] overflow-auto rounded-xl border border-gray-100">
+                {results.map((p) => {
+                  const active = selected?.id === p.id;
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => onSelect(p)}
+                      className={`w-full text-left px-3 py-3 border-b border-gray-50 active:scale-[0.99] ${
+                        active ? "bg-[#0B6EA9]/10" : "bg-white"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-extrabold">{p.slug}</div>
+                          <div className="mt-1 text-[11px] text-gray-500">
+                            tags: {(p.tags ?? []).length} • img: {p.img ? "yes" : "no"}
+                          </div>
+                        </div>
+                        <div className="shrink-0 text-[11px] font-extrabold text-gray-500">Edit</div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="mt-4 rounded-2xl border border-gray-100 bg-gray-50 p-3">
+            {!selected ? (
+              <div className="text-sm text-gray-600">Pick a product above to start editing.</div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                <div>
+                  <div className="text-[11px] font-extrabold text-gray-700">Selected product</div>
+                  <div className="mt-1 flex flex-col gap-1">
+                    <div className="text-base font-extrabold break-words">{selected.slug}</div>
+                    <div className="text-[11px] text-gray-500 break-words">
+                      Image URL: {selected.img ? selected.img : "(none)"}
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-extrabold text-gray-700">Tags (comma separated)</label>
+                  <textarea
+                    value={tagsText}
+                    onChange={(e) => setTagsText(e.target.value)}
+                    rows={3}
+                    placeholder="e.g. saabuun, nadiifin, omo"
+                    className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-[#0B6EA9] focus:ring-2 focus:ring-[#0B6EA9]/20"
+                  />
+
+                  {tagsPreview.length ? (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {tagsPreview.slice(0, 18).map((t) => (
+                        <span
+                          key={t}
+                          className="rounded-full border border-gray-200 bg-white px-2 py-1 text-[11px] font-extrabold text-gray-700"
+                        >
+                          {t}
+                        </span>
+                      ))}
+                      {tagsPreview.length > 18 ? (
+                        <span className="text-[11px] font-extrabold text-gray-500">
+                          +{tagsPreview.length - 18} more
+                        </span>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="mt-2 text-[11px] text-gray-500">No tags yet.</div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={saveTagsOnly}
+                    disabled={busySave}
+                    className="mt-3 h-11 w-full rounded-xl bg-[#0B6EA9] px-3 text-sm font-extrabold text-white shadow-sm active:scale-[0.99] disabled:opacity-50"
+                  >
+                    {busySave ? "Saving…" : "Save Tags"}
+                  </button>
+                </div>
+
+                <div className="rounded-xl border border-gray-200 bg-white p-3">
+                  <div className="text-[11px] font-extrabold text-gray-700">Product Image (WEBP)</div>
+                  <div className="mt-1 text-[11px] text-gray-500 break-words">
+                    Will upload to: <span className="font-mono">products/{normalizeSlug(selected.slug)}.webp</span>
+                  </div>
+
+                  <div className="mt-2 flex flex-col gap-2">
+                    <input
+                      type="file"
+                      accept="image/webp"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) uploadImage(f);
+                        // reset so re-uploading same file works
+                        e.currentTarget.value = "";
+                      }}
+                      className="block w-full text-sm"
+                      disabled={imgUploading}
+                    />
+
+                    {selected.img ? (
+                      <div className="mt-2 overflow-hidden rounded-xl border border-gray-100">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={selected.img} alt={selected.slug} className="h-auto w-full" />
+                      </div>
+                    ) : null}
+
+                    {imgUploading ? (
+                      <div className="text-sm font-extrabold text-gray-700">Uploading…</div>
+                    ) : imgFileName ? (
+                      <div className="text-[11px] text-gray-500">File: {imgFileName}</div>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
 
           {err ? (
-            <div style={{ marginTop: 10, ...s.err }}>{err}</div>
-          ) : ok ? (
-            <div style={{ marginTop: 10, ...s.ok }}>{ok}</div>
-          ) : null}
-
-          {parseErrors.length ? (
-            <div style={{ marginTop: 10 }}>
-              <div style={s.err}>Parse issues:</div>
-              <ul style={{ marginTop: 6 }}>
-                {parseErrors.slice(0, 20).map((e, i) => (
-                  <li key={i} style={s.small}>
-                    {e}
-                  </li>
-                ))}
-              </ul>
+            <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-extrabold text-red-700">
+              {err}
             </div>
           ) : null}
-        </section>
+          {ok ? (
+            <div className="mt-3 rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-sm font-extrabold text-green-700">
+              {ok}
+            </div>
+          ) : null}
 
-        <section style={s.card}>
-          <div style={{ fontWeight: 950, marginBottom: 8 }}>Expected headers</div>
-          <div style={s.small}>
-            Use these column names in row 1 (case-insensitive). Only <b>slug</b> is required.
+          <div className="mt-4 text-[11px] text-gray-500">
+            Tip: If you need to convert images to WEBP, use any online converter and upload the .webp file.
           </div>
-          <pre style={{ ...s.card, marginTop: 10, background: "#0b1020", color: "#e5e7eb", overflow: "auto" }}>
-{sampleHeaders.join("\n")}
-          </pre>
-        </section>
-
-        <section style={s.card}>
-          <div style={{ fontWeight: 950, marginBottom: 8 }}>Preview ({parsed.length} rows)</div>
-          {parsed.length === 0 ? (
-            <div style={s.small}>Upload a file to preview rows here.</div>
-          ) : (
-            <div style={s.tableWrap}>
-              <table style={s.table}>
-                <thead>
-                  <tr>
-                    <th style={s.th}>slug</th>
-                    <th style={s.th}>qty</th>
-                    <th style={s.th}>cost</th>
-                    <th style={s.th}>price</th>
-                    <th style={s.th}>mrp</th>
-                    <th style={s.th}>is_weight</th>
-                    <th style={s.th}>is_online</th>
-                    <th style={s.th}>subsubcategory_id</th>
-                    <th style={s.th}>min_order_qty</th>
-                    <th style={s.th}>qty_step</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {parsed.slice(0, 50).map((r, idx) => (
-                    <tr key={`${r.slug}_${idx}`}>
-                      <td style={s.td}>
-                        <b>{r.slug}</b>
-                      </td>
-                      <td style={s.td}>{r.qty ?? ""}</td>
-                      <td style={s.td}>{r.cost ?? ""}</td>
-                      <td style={s.td}>{r.price ?? ""}</td>
-                      <td style={s.td}>{r.mrp ?? ""}</td>
-                      <td style={s.td}>{String(r.is_weight ?? "")}</td>
-                      <td style={s.td}>{String(r.is_online ?? "")}</td>
-                      <td style={s.td}>{r.subsubcategory_id ?? ""}</td>
-                      <td style={s.td}>{r.min_order_qty ?? ""}</td>
-                      <td style={s.td}>{r.qty_step ?? ""}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {parsed.length > 50 ? <div style={{ marginTop: 8, ...s.small }}>Showing first 50 rows…</div> : null}
-            </div>
-          )}
-        </section>
+        </div>
       </div>
     </main>
   );

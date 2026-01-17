@@ -1,5 +1,3 @@
-
-
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -197,17 +195,17 @@ export default function QtyCost() {
 
   return (
     <div className="w-full">
-      <div className="mb-3 flex items-center justify-between gap-3">
+      <div className="mb-3 flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
           <div className="text-base font-extrabold">Qty / Cost quick edit</div>
           <div className="text-xs text-gray-500">Search by slug, then update qty and/or cost. Press Enter on a row to save.</div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex w-full md:w-auto items-center gap-2">
           <button
             type="button"
             onClick={loadProducts}
-            className="h-10 rounded-2xl border border-gray-200 bg-white px-3 text-sm font-extrabold text-gray-900 shadow-sm active:scale-[0.99]"
+            className="h-10 w-full md:w-auto rounded-2xl border border-gray-200 bg-white px-3 text-sm font-extrabold text-gray-900 shadow-sm active:scale-[0.99]"
             disabled={loading}
           >
             Refresh
@@ -216,7 +214,7 @@ export default function QtyCost() {
           <button
             type="button"
             onClick={saveAll}
-            className="h-10 rounded-2xl bg-[#0B6EA9] px-3 text-sm font-extrabold text-white shadow-sm active:scale-[0.99] disabled:opacity-50"
+            className="h-10 w-full md:w-auto rounded-2xl bg-[#0B6EA9] px-3 text-sm font-extrabold text-white shadow-sm active:scale-[0.99] disabled:opacity-50"
             disabled={dirtyIds.length === 0}
             title={dirtyIds.length === 0 ? "No changes" : `Save ${dirtyIds.length} changes`}
           >
@@ -239,7 +237,7 @@ export default function QtyCost() {
         </div>
 
         <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-          <div className="grid grid-cols-12 gap-2 border-b border-gray-100 bg-gray-50 px-3 py-2 text-xs font-extrabold text-gray-600">
+          <div className="hidden md:grid grid-cols-12 gap-2 border-b border-gray-100 bg-gray-50 px-3 py-2 text-xs font-extrabold text-gray-600">
             <div className="col-span-6">Product</div>
             <div className="col-span-2 text-right">Qty</div>
             <div className="col-span-2 text-right">Cost</div>
@@ -251,7 +249,7 @@ export default function QtyCost() {
           ) : filtered.length === 0 ? (
             <div className="p-4 text-sm text-gray-500">No results.</div>
           ) : (
-            <div className="max-h-[70vh] overflow-auto">
+            <div className="max-h-[70vh] overflow-auto md:overflow-auto">
               {filtered.map((p) => {
                 const e = getEdit(p.id);
                 const isRowSaving = !!saving[p.id];
@@ -270,13 +268,17 @@ export default function QtyCost() {
                 const rowDirty = qtyChanged || costChanged;
 
                 return (
-                  <div key={p.id} className="grid grid-cols-12 items-center gap-2 px-3 py-2 border-b border-gray-50">
-                    <div className="col-span-6">
+                  <div
+                    key={p.id}
+                    className="grid grid-cols-1 md:grid-cols-12 md:items-center gap-2 px-3 py-3 border-b border-gray-50"
+                  >
+                    <div className="md:col-span-6">
                       <div className="text-sm font-extrabold text-gray-900 truncate">{p.slug}</div>
                       <div className="text-[11px] text-gray-500">Current: qty {formatNum(p.qty)} • cost {formatNum(p.cost)}</div>
                     </div>
 
-                    <div className="col-span-2">
+                    <div className="md:col-span-2">
+                      <div className="md:hidden text-[11px] font-extrabold text-gray-600 mb-1">Qty</div>
                       <input
                         value={qtyVal}
                         inputMode="decimal"
@@ -284,13 +286,14 @@ export default function QtyCost() {
                         onKeyDown={(ev) => {
                           if (ev.key === "Enter") saveOne(p);
                         }}
-                        className={`h-10 w-full rounded-xl border px-2 text-right text-sm outline-none focus:ring-2 focus:ring-[#0B6EA9]/20 ${
+                        className={`h-11 md:h-10 w-full rounded-xl border px-3 md:px-2 text-left md:text-right text-sm outline-none focus:ring-2 focus:ring-[#0B6EA9]/20 ${
                           qtyBad ? "border-red-300 focus:border-red-400" : "border-gray-200 focus:border-[#0B6EA9]"
                         }`}
                       />
                     </div>
 
-                    <div className="col-span-2">
+                    <div className="md:col-span-2">
+                      <div className="md:hidden text-[11px] font-extrabold text-gray-600 mb-1">Cost</div>
                       <input
                         value={costVal}
                         inputMode="decimal"
@@ -298,16 +301,16 @@ export default function QtyCost() {
                         onKeyDown={(ev) => {
                           if (ev.key === "Enter") saveOne(p);
                         }}
-                        className={`h-10 w-full rounded-xl border px-2 text-right text-sm outline-none focus:ring-2 focus:ring-[#0B6EA9]/20 ${
+                        className={`h-11 md:h-10 w-full rounded-xl border px-3 md:px-2 text-left md:text-right text-sm outline-none focus:ring-2 focus:ring-[#0B6EA9]/20 ${
                           costBad ? "border-red-300 focus:border-red-400" : "border-gray-200 focus:border-[#0B6EA9]"
                         }`}
                       />
                     </div>
 
-                    <div className="col-span-2 flex justify-end gap-2">
+                    <div className="md:col-span-2 flex flex-col md:flex-row justify-stretch md:justify-end gap-2">
                       <button
                         type="button"
-                        className="h-10 rounded-xl border border-gray-200 bg-white px-3 text-sm font-extrabold text-gray-900 active:scale-[0.99] disabled:opacity-50"
+                        className="h-11 md:h-10 w-full md:w-auto rounded-xl border border-gray-200 bg-white px-3 text-sm font-extrabold text-gray-900 active:scale-[0.99] disabled:opacity-50"
                         disabled={isRowSaving || (!rowDirty && !e.qty && !e.cost) || qtyBad || costBad}
                         onClick={() => saveOne(p)}
                       >
@@ -316,7 +319,7 @@ export default function QtyCost() {
 
                       <button
                         type="button"
-                        className="h-10 rounded-xl border border-gray-200 bg-white px-2 text-sm font-extrabold text-gray-500 active:scale-[0.99]"
+                        className="h-11 md:h-10 w-full md:w-auto rounded-xl border border-gray-200 bg-white px-2 text-sm font-extrabold text-gray-500 active:scale-[0.99]"
                         onClick={() =>
                           setEdits((prev) => {
                             const cp = { ...prev };
