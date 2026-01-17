@@ -20,6 +20,8 @@ type NavItem = { key: SectionKey; label: string; icon: string };
 
 const NAV: NavItem[] = [
     { key: "pos", label: "POS", icon: "🧾" },
+  { key: "inventory", label: "Inventory", icon: "📦" },
+  { key: "credits", label: "Credits", icon: "💳" },
 
   { key: "products", label: "Products", icon: "📦" },
     { key: "suppliers", label: "Suppliers", icon: "-" },
@@ -29,10 +31,8 @@ const NAV: NavItem[] = [
   { key: "pricing", label: "Pricing", icon: "💰" },
   { key: "upload", label: "Upload", icon: "⬆️" },
   { key: "orders", label: "Orders", icon: "📋" },
-  { key: "credits", label: "Credits", icon: "💳" },
   { key: "pnl", label: "P&L", icon: "📈" },
   { key: "expenses", label: "Expenses", icon: "💸" },
-  { key: "inventory", label: "Inventory", icon: "📦" },
       { key: "qtycost", label: "qtycost", icon: "🧾" },
 
 ];
@@ -114,7 +114,7 @@ const styles: Record<string, React.CSSProperties> = {
 };
 
 export default function Page() {
-  const [active, setActive] = useState<SectionKey>("products");
+  const [active, setActive] = useState<SectionKey>("pos");
 
   const activeLabel = useMemo(() => NAV.find((n) => n.key === active)?.label ?? "", [active]);
 
