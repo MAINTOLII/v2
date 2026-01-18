@@ -84,11 +84,13 @@ export default function QtyCost() {
 
   const filtered = useMemo(() => {
     const qq = q.trim().toLowerCase();
-    if (!qq) return products.slice(0, 60);
+    // Show more by default when no search term is entered
+    if (!qq) return products.slice(0, 500);
+
     // fast filter by slug
     return products
       .filter((p) => (p.slug ?? "").toLowerCase().includes(qq))
-      .slice(0, 120);
+      .slice(0, 500);
   }, [products, q]);
 
   function getEdit(id: string) {

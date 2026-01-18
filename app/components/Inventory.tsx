@@ -7,11 +7,9 @@ import { supabase } from "../../lib/supabase";
 
 type ProductRow = {
   id: string;
-  slug: string | null;
-  name_en: string | null;
-  name_so: string | null;
-  qty: number | null;
-  cost: number | null;
+  slug: string;
+  qty: number;
+  cost: number;
 };
 
 type MovementRow = {
@@ -109,18 +107,16 @@ export default function Inventory() {
     const qq = q.trim().toLowerCase();
     if (!qq) return products;
     return products.filter((p) => {
-      const a = (p.name_en ?? "").toLowerCase();
-      const b = (p.name_so ?? "").toLowerCase();
       const c = (p.slug ?? "").toLowerCase();
-      return a.includes(qq) || b.includes(qq) || c.includes(qq);
+      return c.includes(qq);
     });
   }, [products, q]);
 
   async function loadProducts() {
     const res = await supabase
       .from("products")
-      .select("id,slug,name_en,name_so,qty,cost")
-      .order("name_en", { ascending: true })
+      .select("id,slug,qty,cost")
+      .order("slug", { ascending: true })
       .limit(5000);
 
     if (res.error) throw res.error;
@@ -201,12 +197,11 @@ export default function Inventory() {
 
     const delta = movementType === "in" ? Math.abs(rawQty) : movementType === "out" ? -Math.abs(rawQty) : rawQty;
 
-    const costNum = unitCost.trim().length ? Number(unitCost) : null;
-    if (unitCost.trim().length && (!Number.isFinite(costNum as any) || (costNum as any) < 0)) {
-      setErr("Cost must be a number >= 0");
-      return;
-    }
-
+  const costNum = Number(unitCost);
+if (!unitCost.trim().length || !Number.isFinite(costNum) || costNum < 0) {
+  setErr("Cost is required (number >= 0)");
+  return;
+}
     // Frontend rule: when adding stock (IN) with a unit cost,
     // reject if unit cost is more than ±15% from current average cost.
     // (If avg cost is 0 or null, we allow any cost to seed the average.)
@@ -343,7 +338,7 @@ export default function Inventory() {
                 <option value="">— choose —</option>
                 {filteredProducts.slice(0, 200).map((p) => (
                   <option key={p.id} value={p.id}>
-                    {(p.name_en ?? p.name_so ?? p.slug ?? "Unnamed").slice(0, 60)}
+                    {(p.slug ?? "Unnamed").slice(0, 60)}
                   </option>
                 ))}
               </select>
@@ -444,7 +439,7 @@ export default function Inventory() {
                 <option value="">All</option>
                 {products.slice(0, 500).map((p) => (
                   <option key={p.id} value={p.id}>
-                    {(p.name_en ?? p.name_so ?? p.slug ?? "Unnamed").slice(0, 50)}
+                    {(p.slug ?? "Unnamed").slice(0, 50)}
                   </option>
                 ))}
               </select>
@@ -476,7 +471,7 @@ export default function Inventory() {
               ) : (
                 movements.map((m) => {
                   const p = productById[m.product_id];
-                  const label = (p?.name_en ?? p?.name_so ?? p?.slug ?? m.product_id).slice(0, 40);
+                  const label = (p?.slug ?? m.product_id).slice(0, 40);
                   return (
                     <tr key={m.id}>
                       <td style={s.td}>{new Date(m.created_at).toLocaleString()}</td>
