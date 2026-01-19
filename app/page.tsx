@@ -14,13 +14,29 @@ import Expenses from "./components/Expenses";
 import Inventory from "./components/Inventory";
 import Suppliers from "./components/Suppliers";
 import QtyCost from "./components/qtycost";
-type SectionKey = "products" | "fill" | "online" | "pricing" |"suppliers"| "upload" | "orders" | "pos"| "qtycost" | "credits" | "pnl" | "expenses" | "inventory";
+import VegAdmin from "./components/veg";
+type SectionKey =
+  | "products"
+  | "fill"
+  | "online"
+  | "pricing"
+  | "suppliers"
+  | "upload"
+  | "orders"
+  | "pos"
+  | "qtycost"
+  | "credits"
+  | "pnl"
+  | "expenses"
+  | "inventory"
+  | "veg";
 
 type NavItem = { key: SectionKey; label: string; icon: string };
 
 const NAV: NavItem[] = [
     { key: "pos", label: "POS", icon: "🧾" },
   { key: "inventory", label: "Inventory", icon: "📦" },
+  { key: "veg", label: "Veg", icon: "🥦" },
   { key: "credits", label: "Credits", icon: "💳" },
 
   { key: "products", label: "Products", icon: "📦" },
@@ -189,6 +205,8 @@ export default function Page() {
           <Upload />
         ) : active === "pos" ? (
           <POS />
+        ) : active === "veg" ? (
+          <VegAdmin />
           ) : active === "qtycost" ? (
           <QtyCost />
         ) : active === "orders" ? (
