@@ -8,11 +8,7 @@ import { supabase } from "../../lib/supabase";
 type CustomerRow = {
   id: string | number;
   name: string | null;
-  phone: string | null;
-  created_at?: string;
-  is_trusted?: boolean | null;
-  balance?: string | number | null;
-  credit_limit?: string | number | null;
+  phone: string | number | null;
 };
 
 type RowState = {
@@ -137,7 +133,7 @@ export default function Customer() {
     // NOTE: keep this select minimal to be fast. Add more fields later if you want.
     const { data, error } = await supabase
       .from("customers")
-      .select("id,name,phone,created_at,is_trusted,balance,credit_limit")
+      .select("id,name,phone")
       .order("id", { ascending: false })
       .limit(5000);
 
@@ -332,9 +328,7 @@ export default function Customer() {
                       </div>
 
                       <div style={s.row}>
-                        <span style={s.badge}>{c.is_trusted ? "trusted" : "normal"}</span>
-                        {c.balance != null ? <span style={s.badge}>bal {safeStr(c.balance)}</span> : null}
-                        {c.credit_limit != null ? <span style={s.badge}>limit {safeStr(c.credit_limit)}</span> : null}
+                        <span style={s.badge}>customer</span>
                       </div>
                     </div>
 
