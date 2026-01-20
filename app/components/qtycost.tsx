@@ -9,6 +9,7 @@ type ProductRow = {
   qty: number;
   cost: number;
   price: number;
+  is_weight: boolean;
 };
 
 function numOrNull(v: string): number | null {
@@ -33,6 +34,7 @@ export default function QtyCost() {
 
   const [products, setProducts] = useState<ProductRow[]>([]);
   const [q, setQ] = useState("");
+  const [weightFilter, setWeightFilter] = useState<"all" | "weight" | "unit">("all");
 
   // edits keyed by product id
   const [edits, setEdits] = useState<Record<string, { qty?: string; cost?: string; price?: string }>>({});
@@ -51,7 +53,7 @@ export default function QtyCost() {
     try {
       const res = await supabase
         .from("products")
-        .select("id,slug,qty,cost,price")
+        .select("id,slug,qty,cost,price,is_weight")
         .order("slug", { ascending: true })
         .limit(5000);
 
@@ -67,6 +69,7 @@ export default function QtyCost() {
             qty: Number(r.qty ?? 0),
             cost: Number(r.cost ?? 0),
             price: Number(r.price ?? 0),
+            is_weight: !!r.is_weight,
           }))
       );
     } catch (e: any) {
@@ -84,14 +87,21 @@ export default function QtyCost() {
 
   const filtered = useMemo(() => {
     const qq = q.trim().toLowerCase();
+
+    const applyWeight = (list: ProductRow[]) => {
+      if (weightFilter === "weight") return list.filter((p) => !!p.is_weight);
+      if (weightFilter === "unit") return list.filter((p) => !p.is_weight);
+      return list;
+    };
+
     // Show more by default when no search term is entered
-    if (!qq) return products.slice(0, 500);
+    if (!qq) return applyWeight(products).slice(0, 500);
 
     // fast filter by slug
-    return products
+    return applyWeight(products)
       .filter((p) => (p.slug ?? "").toLowerCase().includes(qq))
       .slice(0, 500);
-  }, [products, q]);
+  }, [products, q, weightFilter]);
 
   function getEdit(id: string) {
     return edits[id] ?? {};
@@ -252,7 +262,39 @@ export default function QtyCost() {
 
       <div className="flex flex-col gap-2">
         <div className="rounded-2xl border border-gray-100 bg-white p-3 shadow-sm">
-          <div className="text-xs font-extrabold text-gray-700">Search</div>
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="text-xs font-extrabold text-gray-700">Search</div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setWeightFilter("all")}
+                className={`h-8 rounded-full border px-3 text-xs font-extrabold active:scale-[0.99] ${
+                  weightFilter === "all" ? "border-gray-900 bg-gray-900 text-white" : "border-gray-200 bg-white text-gray-900"
+                }`}
+              >
+                All
+              </button>
+              <button
+                type="button"
+                onClick={() => setWeightFilter("weight")}
+                className={`h-8 rounded-full border px-3 text-xs font-extrabold active:scale-[0.99] ${
+                  weightFilter === "weight" ? "border-gray-900 bg-gray-900 text-white" : "border-gray-200 bg-white text-gray-900"
+                }`}
+              >
+                KG
+              </button>
+              <button
+                type="button"
+                onClick={() => setWeightFilter("unit")}
+                className={`h-8 rounded-full border px-3 text-xs font-extrabold active:scale-[0.99] ${
+                  weightFilter === "unit" ? "border-gray-900 bg-gray-900 text-white" : "border-gray-200 bg-white text-gray-900"
+                }`}
+              >
+                Unit
+              </button>
+            </div>
+          </div>
           <input
             ref={searchRef}
             value={q}
@@ -306,7 +348,9 @@ export default function QtyCost() {
                   >
                     <div className="col-span-3">
                       <div className="text-xs font-extrabold text-gray-900 truncate">{p.slug}</div>
-                      <div className="text-[11px] text-gray-500">Current: qty {formatNum(p.qty)} • cost {formatNum(p.cost)} • price {formatNum(p.price)}</div>
+                      <div className="text-[11px] text-gray-500">
+                        Current: {p.is_weight ? "kg" : "unit"} • qty {formatNum(p.qty)} • cost {formatNum(p.cost)} • price {formatNum(p.price)}
+                      </div>
                     </div>
 
                     <div className="col-span-2">

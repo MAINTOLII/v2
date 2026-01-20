@@ -1,3 +1,5 @@
+
+// This file has been replaced with the new POS component code.
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -20,10 +22,11 @@ type CartItem = {
   is_weight: boolean;
   qty: number; // units or kg
 };
+
 type Customer = {
-  id: string | number;     // BIGINT in DB (may come back as number or string)
+  id: string | number; // BIGINT in DB (may come back as number or string)
   name: string | null;
-  phone: string | null;    // stored as text like "336454"
+  phone: string | null; // stored as text like "336454"
   created_at?: string;
   is_trusted?: boolean;
   balance?: string | number;
@@ -34,17 +37,27 @@ type CheckoutMode = "paid" | "credit";
 
 const s: Record<string, React.CSSProperties> = {
   page: {
-    padding: 12,
+    padding: 10,
     background: "#fafafa",
     minHeight: "100vh",
     color: "#111",
     fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif",
   },
   container: {
-    maxWidth: 980,
+    maxWidth: 720,
     margin: "0 auto",
     display: "grid",
     gap: 10,
+  },
+  stickyHeader: {
+    position: "sticky",
+    top: 0,
+    zIndex: 30,
+    background: "rgba(250,250,250,0.92)",
+    backdropFilter: "blur(8px)",
+    WebkitBackdropFilter: "blur(8px)",
+    padding: "10px 12px",
+    borderBottom: "1px solid #e5e7eb",
   },
   header: {
     display: "flex",
@@ -53,7 +66,16 @@ const s: Record<string, React.CSSProperties> = {
     gap: 10,
     flexWrap: "wrap",
   },
+  headerCompact: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 10,
+    flexWrap: "wrap",
+  },
+  chipRow: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" },
   title: { margin: 0, fontSize: 18, fontWeight: 800, letterSpacing: "-0.02em" },
+  sectionTitle: { margin: 0, fontSize: 16, fontWeight: 800 },
   badge: {
     display: "inline-flex",
     alignItems: "center",
@@ -158,6 +180,10 @@ export default function POS() {
   // prevents duplicate checkouts
   const [checkingOut, setCheckingOut] = useState(false);
 
+  // UX controls
+  const [cartOpen, setCartOpen] = useState(true);
+  const MIN_SEARCH_CHARS = 4;
+
   const searchRef = useRef<HTMLInputElement | null>(null);
   const customerBoxRef = useRef<HTMLDivElement | null>(null);
 
@@ -169,8 +195,12 @@ export default function POS() {
 
   const cartItems = useMemo(() => Object.values(cart), [cart]);
 
-  const total = useMemo(() => cartItems.reduce((sum, it) => sum + it.price * it.qty, 0), [cartItems]);
+  const total = useMemo(
+    () => cartItems.reduce((sum, it) => sum + it.price * it.qty, 0),
+    [cartItems]
+  );
 
+  // keep profit calc (useful), but we won't show it in the UI to keep screen clean
   const profit = useMemo(() => {
     return cartItems.reduce((sum, it) => {
       const cost = Number(productsBySlug[it.slug]?.cost ?? 0);
@@ -180,9 +210,13 @@ export default function POS() {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return [];
+    if (!q || q.length < MIN_SEARCH_CHARS) return [];
     return products
-      .filter((p) => p.slug.toLowerCase().includes(q) || (p.tags ?? []).some((t) => String(t).toLowerCase().includes(q)))
+      .filter(
+        (p) =>
+          p.slug.toLowerCase().includes(q) ||
+          (p.tags ?? []).some((t) => String(t).toLowerCase().includes(q))
+      )
       .slice(0, 8);
   }, [products, query]);
 
@@ -310,7 +344,8 @@ export default function POS() {
         },
       };
     });
-        // collapse search dropdown after adding item
+
+    // collapse search dropdown after adding item
     setQuery("");
 
     // keep search text for quick repeat scanning; select all text
@@ -375,51 +410,49 @@ export default function POS() {
     setCustomerPickOpen(false);
   }
 
-async function ensureCustomer(phoneText: string) {
-  const norm = phoneText.trim().replace(/\s+/g, "");
+  async function ensureCustomer(phoneText: string) {
+    const norm = phoneText.trim().replace(/\s+/g, "");
 
-  // allow any number (3+ digits)
-  if (!/^\d{3,}$/.test(norm)) throw new Error("Invalid customer number");
+    // allow any number (3+ digits)
+    if (!/^\d{3,}$/.test(norm)) throw new Error("Invalid customer number");
 
-  // local cache
-  const existingLocal = customers.find((c) => String(c.phone ?? "") === norm);
-  if (existingLocal) return existingLocal;
+    // local cache
+    const existingLocal = customers.find((c) => String(c.phone ?? "") === norm);
+    if (existingLocal) return existingLocal;
 
-  // DB check (phone is TEXT)
-  const { data: found, error: findErr } = await supabase
-    .from("customers")
-    .select("id,name,phone")
-    .eq("phone", norm)
-    .maybeSingle();
+    // DB check (phone is TEXT)
+    const { data: found, error: findErr } = await supabase
+      .from("customers")
+      .select("id,name,phone")
+      .eq("phone", norm)
+      .maybeSingle();
 
-  if (!findErr && found) {
-    const c = found as any as Customer;
-    setCustomers((prev) =>
-      prev.some((x) => String(x.id) === String(c.id)) ? prev : [c, ...prev]
-    );
-    return c;
+    if (!findErr && found) {
+      const c = found as any as Customer;
+      setCustomers((prev) => (prev.some((x) => String(x.id) === String(c.id)) ? prev : [c, ...prev]));
+      return c;
+    }
+
+    // create ONLY when checkout calls this
+    // customers.id is BIGINT in your DB, so we use the numeric phone as the id.
+    const phoneNum = Number(norm);
+    if (!Number.isFinite(phoneNum)) throw new Error("Invalid customer number");
+
+    const { data, error } = await supabase
+      .from("customers")
+      .insert({ id: phoneNum, phone: norm })
+      .select("id,name,phone")
+      .single();
+
+    if (error) throw error;
+
+    const created = data as any as Customer;
+    setCustomers((prev) => {
+      if (prev.some((x) => String(x.id) === String(created.id))) return prev;
+      return [created, ...prev];
+    });
+    return created;
   }
-
-  // create ONLY when checkout calls this
-  // customers.id is BIGINT in your DB, so we use the numeric phone as the id.
-  const phoneNum = Number(norm);
-  if (!Number.isFinite(phoneNum)) throw new Error("Invalid customer number");
-
-  const { data, error } = await supabase
-    .from("customers")
-    .insert({ id: phoneNum, phone: norm })
-    .select("id,name,phone")
-    .single();
-
-  if (error) throw error;
-
-  const created = data as any as Customer;
-  setCustomers((prev) => {
-    if (prev.some((x) => String(x.id) === String(created.id))) return prev;
-    return [created, ...prev];
-  });
-  return created;
-}
 
   async function checkoutPOS(mode: CheckoutMode) {
     // prevent duplicate checkouts (double click / slow network)
@@ -444,6 +477,7 @@ async function ensureCustomer(phoneText: string) {
       let customer: Customer | null = null;
       try {
         customer = await ensureCustomer(phone);
+        void customer;
       } catch (e: any) {
         setErrorMsg(e?.message ?? "Failed to create/find customer");
         return;
@@ -461,7 +495,13 @@ async function ensureCustomer(phoneText: string) {
       // Create order as pending (because confirm_order expects pending)
       const { data: orderRow, error: orderErr } = await supabase
         .from("orders")
-        .insert({ phone, status: "pending", channel: "pos", total: 0, note: mode === "credit" ? "CREDIT" : null })
+        .insert({
+          phone,
+          status: "pending",
+          channel: "pos",
+          total: 0,
+          note: mode === "credit" ? "CREDIT" : null,
+        })
         .select("id")
         .single();
 
@@ -511,21 +551,21 @@ async function ensureCustomer(phoneText: string) {
 
       if (mode === "credit") {
         const amount = Number(total.toFixed(2));
-        const { error: credErr } = await supabase.from("credits").insert({
-          // NOTE: credits.customer_id is BIGINT in your DB, but customers.id is UUID.
-          // So we do NOT write the UUID into customer_id.
-          customer_id: null,
-          customer_phone: Number(phone),
-          order_id: orderId,
-          amount,
-          status: "open",
-        } as any);
+        const { error: credErr } = await supabase
+          .from("credits")
+          .insert({
+            // NOTE: credits.customer_id is BIGINT in your DB, but customers.id is UUID.
+            // So we do NOT write the UUID into customer_id.
+            customer_id: null,
+            customer_phone: Number(phone),
+            order_id: orderId,
+            amount,
+            status: "open",
+          } as any);
 
         if (credErr) {
           console.error("credits insert failed", credErr);
-          setSuccessMsg(
-            `✅ Completed (CREDIT). Order: ${orderId}. (But credit record failed: ${credErr.message})`
-          );
+          setSuccessMsg(`✅ Completed (CREDIT). Order: ${orderId}. (But credit record failed: ${credErr.message})`);
         } else {
           setSuccessMsg(`✅ Completed (CREDIT). Order: ${orderId}. Saved to credits.`);
         }
@@ -543,13 +583,31 @@ async function ensureCustomer(phoneText: string) {
   return (
     <main style={s.page}>
       <div style={s.container}>
-        <div style={s.header}>
-          <h1 style={s.title}>POS</h1>
-          <div style={s.row}>
-            <span style={s.badge}>Items: {products.length}</span>
-            <span style={s.badge}>Cart: {cartItems.length}</span>
-            <span style={s.badge}>Total: {money(total)}</span>
-            <span style={s.badge}>Profit: {money(profit)}</span>
+        <div style={s.stickyHeader}>
+          <div style={s.headerCompact}>
+            <h1 style={s.title}>POS</h1>
+            <div style={s.chipRow}>
+              <span style={s.badge}>Cart: {cartItems.length}</span>
+              <span style={s.badge}>Total: {money(total)}</span>
+              <button
+                type="button"
+                style={{
+                  ...s.btnGhost,
+                  height: 34,
+                  padding: "0 10px",
+                  borderRadius: 999,
+                  opacity: checkingOut ? 0.6 : 1,
+                  cursor: checkingOut ? "not-allowed" : "pointer",
+                }}
+                onClick={() => {
+                  if (checkingOut) return;
+                  setCartOpen((v) => !v);
+                }}
+                disabled={checkingOut}
+              >
+                {cartOpen ? "Hide cart" : "Show cart"}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -563,17 +621,17 @@ async function ensureCustomer(phoneText: string) {
         <div style={s.card}>
           <div ref={customerBoxRef} style={{ position: "relative" }}>
             <div style={s.row}>
-<input
-  style={{ ...s.input, flex: 1, minWidth: 220 }}
-  placeholder={customerLoading ? "Loading customers…" : "Customer number"}
-  value={customerNumber}
-  onChange={(e) => {
-    setCustomerNumber(e.target.value);
-    setCustomerPickOpen(true);
-  }}
-  onFocus={() => setCustomerPickOpen(true)}
-  disabled={checkingOut}
-/>
+              <input
+                style={{ ...s.input, flex: 1, minWidth: 220 }}
+                placeholder={customerLoading ? "Loading customers…" : "Customer number"}
+                value={customerNumber}
+                onChange={(e) => {
+                  setCustomerNumber(e.target.value);
+                  setCustomerPickOpen(true);
+                }}
+                onFocus={() => setCustomerPickOpen(true)}
+                disabled={checkingOut}
+              />
 
               {selectedCustomer ? (
                 <span style={s.badge}>
@@ -582,7 +640,11 @@ async function ensureCustomer(phoneText: string) {
               ) : null}
 
               <button
-                style={{ ...s.btnGhost, opacity: checkingOut ? 0.6 : 1, cursor: checkingOut ? "not-allowed" : "pointer" }}
+                style={{
+                  ...s.btnGhost,
+                  opacity: checkingOut ? 0.6 : 1,
+                  cursor: checkingOut ? "not-allowed" : "pointer",
+                }}
                 type="button"
                 onClick={() => {
                   if (checkingOut) return;
@@ -643,13 +705,17 @@ async function ensureCustomer(phoneText: string) {
             <input
               ref={searchRef}
               style={{ ...s.input, flex: 1, minWidth: 260 }}
-              placeholder={loading ? "Loading products…" : "Search item (slug or tag)"}
+              placeholder={loading ? "Loading products…" : `Search item (type ${MIN_SEARCH_CHARS}+ chars)`}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               disabled={loading || checkingOut}
             />
             <button
-              style={{ ...s.btnGhost, opacity: checkingOut ? 0.6 : 1, cursor: checkingOut ? "not-allowed" : "pointer" }}
+              style={{
+                ...s.btnGhost,
+                opacity: checkingOut ? 0.6 : 1,
+                cursor: checkingOut ? "not-allowed" : "pointer",
+              }}
               type="button"
               onClick={() => {
                 if (checkingOut) return;
@@ -661,9 +727,16 @@ async function ensureCustomer(phoneText: string) {
               Clear
             </button>
           </div>
-          <div style={s.small}>Tip: type, then click an item below to add quickly. (Weight adds 0.25kg per click.)</div>
 
-          {query.trim() && (
+          <div style={s.small}>Tip: type and tap Add. (Weight adds 0.25kg per tap.)</div>
+
+          {query.trim().length > 0 && query.trim().length < MIN_SEARCH_CHARS ? (
+            <div style={{ ...s.small, marginTop: 10, opacity: 0.7 }}>
+              Type {MIN_SEARCH_CHARS}+ characters to search…
+            </div>
+          ) : null}
+
+          {query.trim().length >= MIN_SEARCH_CHARS && (
             <ul style={{ ...s.list, marginTop: 10 }}>
               {filtered.length === 0 ? (
                 <li style={{ ...s.li, opacity: 0.7 }}>No match.</li>
@@ -674,11 +747,15 @@ async function ensureCustomer(phoneText: string) {
                       <div>
                         <div style={{ fontWeight: 800 }}>{p.slug}</div>
                         <div style={s.small}>
-                          {p.is_weight ? "kg" : "unit"} • price {money(p.price)} • stock {p.qty} • available {available(p.slug)}
+                          {p.is_weight ? "kg" : "unit"} • {money(p.price)} • stock {p.qty}
                         </div>
                       </div>
                       <button
-                        style={{ ...s.btn, opacity: checkingOut ? 0.6 : 1, cursor: checkingOut ? "not-allowed" : "pointer" }}
+                        style={{
+                          ...s.btn,
+                          opacity: checkingOut ? 0.6 : 1,
+                          cursor: checkingOut ? "not-allowed" : "pointer",
+                        }}
                         type="button"
                         onClick={() => {
                           if (checkingOut) return;
@@ -697,11 +774,15 @@ async function ensureCustomer(phoneText: string) {
         </div>
 
         <div style={s.card}>
-          <div style={s.header}>
-            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>Cart</h2>
+          <div style={s.headerCompact}>
+            <h2 style={s.sectionTitle}>Cart</h2>
             <div style={s.row}>
               <button
-                style={{ ...s.btnGhost, opacity: cartItems.length === 0 || checkingOut ? 0.6 : 1, cursor: cartItems.length === 0 || checkingOut ? "not-allowed" : "pointer" }}
+                style={{
+                  ...s.btnGhost,
+                  opacity: cartItems.length === 0 || checkingOut ? 0.6 : 1,
+                  cursor: cartItems.length === 0 || checkingOut ? "not-allowed" : "pointer",
+                }}
                 type="button"
                 onClick={() => {
                   if (checkingOut) return;
@@ -713,7 +794,11 @@ async function ensureCustomer(phoneText: string) {
               </button>
 
               <button
-                style={{ ...s.btn, opacity: cartItems.length === 0 || checkingOut ? 0.6 : 1, cursor: cartItems.length === 0 || checkingOut ? "not-allowed" : "pointer" }}
+                style={{
+                  ...s.btn,
+                  opacity: cartItems.length === 0 || checkingOut ? 0.6 : 1,
+                  cursor: cartItems.length === 0 || checkingOut ? "not-allowed" : "pointer",
+                }}
                 type="button"
                 onClick={() => checkoutPOS("paid")}
                 disabled={cartItems.length === 0 || checkingOut}
@@ -722,7 +807,11 @@ async function ensureCustomer(phoneText: string) {
               </button>
 
               <button
-                style={{ ...s.btnGhost, opacity: cartItems.length === 0 || checkingOut ? 0.6 : 1, cursor: cartItems.length === 0 || checkingOut ? "not-allowed" : "pointer" }}
+                style={{
+                  ...s.btnGhost,
+                  opacity: cartItems.length === 0 || checkingOut ? 0.6 : 1,
+                  cursor: cartItems.length === 0 || checkingOut ? "not-allowed" : "pointer",
+                }}
                 type="button"
                 onClick={() => checkoutPOS("credit")}
                 disabled={cartItems.length === 0 || checkingOut}
@@ -732,7 +821,9 @@ async function ensureCustomer(phoneText: string) {
             </div>
           </div>
 
-          {cartItems.length === 0 ? (
+          {!cartOpen ? (
+            <div style={{ opacity: 0.7 }}>Cart hidden.</div>
+          ) : cartItems.length === 0 ? (
             <div style={{ opacity: 0.7 }}>Empty.</div>
           ) : (
             <ul style={s.list}>
@@ -746,11 +837,17 @@ async function ensureCustomer(phoneText: string) {
                         <div style={{ fontWeight: 800 }}>{it.slug}</div>
                         <div style={s.small}>
                           {it.is_weight ? "kg" : "unit"} • unit {money(it.price)}
-                          {Number(it.base_price) !== Number(it.price) ? ` (default ${money(it.base_price)})` : ""} • stock {max}
+                          {Number(it.base_price) !== Number(it.price)
+                            ? ` (default ${money(it.base_price)})`
+                            : ""} • stock {max}
                         </div>
                       </div>
                       <button
-                        style={{ ...s.btnDanger, opacity: checkingOut ? 0.6 : 1, cursor: checkingOut ? "not-allowed" : "pointer" }}
+                        style={{
+                          ...s.btnDanger,
+                          opacity: checkingOut ? 0.6 : 1,
+                          cursor: checkingOut ? "not-allowed" : "pointer",
+                        }}
                         type="button"
                         onClick={() => {
                           if (checkingOut) return;
@@ -763,89 +860,90 @@ async function ensureCustomer(phoneText: string) {
                     </div>
 
                     <div style={s.row}>
-<div
-  style={{
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-  }}
->
-  <button
-    type="button"
-    aria-label="Decrease quantity"
-    style={{
-      width: 44,
-      height: 44,
-      borderRadius: 12,
-      border: "1px solid #e5e7eb",
-      background: "#fff",
-      fontWeight: 900,
-      fontSize: 18,
-      cursor: checkingOut ? "not-allowed" : "pointer",
-      opacity: checkingOut ? 0.6 : 1,
-    }}
-    disabled={checkingOut}
-    onClick={() => {
-      const step = it.is_weight ? 0.25 : 1;
-      const min = it.is_weight ? 0.01 : 1;
-      const next = Number(it.qty) - step;
-      const safe = Number.isFinite(next) ? next : min;
-      setQty(it.slug, safe < min ? min : safe, it.is_weight);
-    }}
-  >
-    −
-  </button>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                        }}
+                      >
+                        <button
+                          type="button"
+                          aria-label="Decrease quantity"
+                          style={{
+                            width: 44,
+                            height: 44,
+                            borderRadius: 12,
+                            border: "1px solid #e5e7eb",
+                            background: "#fff",
+                            fontWeight: 900,
+                            fontSize: 18,
+                            cursor: checkingOut ? "not-allowed" : "pointer",
+                            opacity: checkingOut ? 0.6 : 1,
+                          }}
+                          disabled={checkingOut}
+                          onClick={() => {
+                            const step = it.is_weight ? 0.25 : 1;
+                            const min = it.is_weight ? 0.01 : 1;
+                            const next = Number(it.qty) - step;
+                            const safe = Number.isFinite(next) ? next : min;
+                            setQty(it.slug, safe < min ? min : safe, it.is_weight);
+                          }}
+                        >
+                          −
+                        </button>
 
-  <input
-    inputMode={it.is_weight ? "decimal" : "numeric"}
-    style={{
-      height: 44,
-      width: 90,
-      textAlign: "center",
-      borderRadius: 12,
-      border: "1px solid #e5e7eb",
-      outline: "none",
-      fontSize: 16,
-      fontWeight: 900,
-      background: "#fff",
-      padding: "0 10px",
-    }}
-    type="number"
-    step={it.is_weight ? "0.25" : "1"}
-    min={it.is_weight ? 0.01 : 1}
-    value={String(it.qty)}
-    onChange={(e) => setQty(it.slug, Number(e.target.value), it.is_weight)}
-    disabled={checkingOut}
-  />
+                        <input
+                          inputMode={it.is_weight ? "decimal" : "numeric"}
+                          style={{
+                            height: 44,
+                            width: 90,
+                            textAlign: "center",
+                            borderRadius: 12,
+                            border: "1px solid #e5e7eb",
+                            outline: "none",
+                            fontSize: 16,
+                            fontWeight: 900,
+                            background: "#fff",
+                            padding: "0 10px",
+                          }}
+                          type="number"
+                          step={it.is_weight ? "0.25" : "1"}
+                          min={it.is_weight ? 0.01 : 1}
+                          value={String(it.qty)}
+                          onChange={(e) => setQty(it.slug, Number(e.target.value), it.is_weight)}
+                          disabled={checkingOut}
+                        />
 
-  <button
-    type="button"
-    aria-label="Increase quantity"
-    style={{
-      width: 44,
-      height: 44,
-      borderRadius: 12,
-      border: "1px solid #e5e7eb",
-      background: "#fff",
-      fontWeight: 900,
-      fontSize: 18,
-      cursor: checkingOut ? "not-allowed" : "pointer",
-      opacity: checkingOut ? 0.6 : 1,
-    }}
-    disabled={checkingOut}
-    onClick={() => {
-      const step = it.is_weight ? 0.25 : 1;
-      const min = it.is_weight ? 0.01 : 1;
-      const next = Number(it.qty) + step;
-      const safe = Number.isFinite(next) ? next : min;
-      setQty(it.slug, safe, it.is_weight);
-    }}
-  >
-    +
-  </button>
-</div>
+                        <button
+                          type="button"
+                          aria-label="Increase quantity"
+                          style={{
+                            width: 44,
+                            height: 44,
+                            borderRadius: 12,
+                            border: "1px solid #e5e7eb",
+                            background: "#fff",
+                            fontWeight: 900,
+                            fontSize: 18,
+                            cursor: checkingOut ? "not-allowed" : "pointer",
+                            opacity: checkingOut ? 0.6 : 1,
+                          }}
+                          disabled={checkingOut}
+                          onClick={() => {
+                            const step = it.is_weight ? 0.25 : 1;
+                            const min = it.is_weight ? 0.01 : 1;
+                            const next = Number(it.qty) + step;
+                            const safe = Number.isFinite(next) ? next : min;
+                            setQty(it.slug, safe, it.is_weight);
+                          }}
+                        >
+                          +
+                        </button>
+                      </div>
+
                       <input
-                        style={{ ...s.input, width: 160 }}
+                        style={{ ...s.input, width: 140 }}
                         type="number"
                         step="0.01"
                         min={0}
@@ -854,8 +952,8 @@ async function ensureCustomer(phoneText: string) {
                         disabled={checkingOut}
                         placeholder="Unit price"
                       />
+
                       <span style={s.badge}>Line: {money(line)}</span>
-                      <span style={s.badge}>Total: {money(total)}</span>
                     </div>
                   </li>
                 );
