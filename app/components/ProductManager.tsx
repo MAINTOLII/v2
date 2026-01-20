@@ -172,7 +172,7 @@ const s: Record<string, React.CSSProperties> = {
 /* ================= HELPERS ================= */
 
 function n(v: string): number {
-  const x = Number(v);
+  const x = Number(String(v).replace(",", "."));
   return Number.isFinite(x) ? x : 0;
 }
 
@@ -390,22 +390,35 @@ export default function ProductManager() {
 
             <div style={s.field}>
               <label style={s.label}>Price</label>
-              <input
-                style={s.input}
-                type="number"
-                value={form.price}
-                onChange={(e) => setForm((f) => ({ ...f, price: e.target.value }))}
-              />
+<input
+  style={s.input}
+  type="text"
+  inputMode="decimal"
+  pattern="[0-9]*[.,]?[0-9]*"
+  placeholder="e.g. 1.25"
+  value={form.price}
+  onChange={(e) => setForm((f) => ({ ...f, price: e.target.value }))}
+  onWheel={(e) => {
+    // prevents scroll-wheel from changing numbers on some browsers
+    (e.currentTarget as HTMLInputElement).blur();
+  }}
+/>
             </div>
 
             <div style={s.field}>
               <label style={s.label}>Cost</label>
-              <input
-                style={s.input}
-                type="number"
-                value={form.cost}
-                onChange={(e) => setForm((f) => ({ ...f, cost: e.target.value }))}
-              />
+<input
+  style={s.input}
+  type="text"
+  inputMode="decimal"
+  pattern="[0-9]*[.,]?[0-9]*"
+  placeholder="e.g. 0.90"
+  value={form.cost}
+  onChange={(e) => setForm((f) => ({ ...f, cost: e.target.value }))}
+  onWheel={(e) => {
+    (e.currentTarget as HTMLInputElement).blur();
+  }}
+/>
             </div>
 
             <div style={s.field}>

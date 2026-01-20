@@ -29,119 +29,24 @@ type OrderItem = {
 type Customer = {
   id: string | number;
   name: string | null;
-  phone: string | null;
+  phone: string | number | null;
 };
 
-type StatusMode = "confirmed" | "completed" | "both";
-
-type DaySummary = {
-  revenue: number;
-  cost: number;
-  profit: number;
-  count: number;
-};
-
-const s: Record<string, React.CSSProperties> = {
-  page: {
-    padding: 12,
-    background: "#fafafa",
-    minHeight: "100vh",
-    color: "#111",
-    fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif",
-  },
-  container: { maxWidth: 900, margin: "0 auto", display: "grid", gap: 12 },
-  sticky: {
-    position: "sticky",
-    top: 0,
-    zIndex: 20,
-    background: "rgba(250,250,250,0.92)",
-    backdropFilter: "blur(8px)",
-    WebkitBackdropFilter: "blur(8px)",
-    borderBottom: "1px solid #e5e7eb",
-    padding: "10px 10px",
-  },
-  headerTop: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" },
-  title: { margin: 0, fontSize: 18, fontWeight: 950, letterSpacing: "-0.02em" },
-  small: { fontSize: 12, opacity: 0.75 },
-  row: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" },
-  card: { background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: 12 },
-  badge: {
-    display: "inline-flex",
-    alignItems: "center",
-    padding: "2px 8px",
-    borderRadius: 999,
-    border: "1px solid #e5e7eb",
-    fontSize: 12,
-    fontWeight: 900,
-    background: "#fff",
-    whiteSpace: "nowrap",
-  },
-  badgeGood: { border: "1px solid #b7ebc8", background: "#ecfdf3", color: "#067647" },
-  badgeBad: { border: "1px solid #f1c4c4", background: "#fff1f2", color: "#b42318" },
-  input: {
-    height: 36,
-    padding: "7px 10px",
-    borderRadius: 10,
-    border: "1px solid #e5e7eb",
-    outline: "none",
-    fontSize: 14,
-    background: "#fff",
-  },
-  select: {
-    height: 36,
-    padding: "7px 10px",
-    borderRadius: 10,
-    border: "1px solid #e5e7eb",
-    outline: "none",
-    fontSize: 14,
-    background: "#fff",
-    fontWeight: 900,
-  },
-  btn: {
-    height: 36,
-    padding: "0 10px",
-    borderRadius: 10,
-    border: "1px solid #111",
-    background: "#111",
-    color: "#fff",
-    fontWeight: 900,
-    cursor: "pointer",
-  },
-  btnGhost: {
-    height: 36,
-    padding: "0 10px",
-    borderRadius: 10,
-    border: "1px solid #e5e7eb",
-    background: "#fff",
-    color: "#111",
-    fontWeight: 900,
-    cursor: "pointer",
-  },
-  btnDanger: {
-    height: 36,
-    padding: "0 10px",
-    borderRadius: 10,
-    border: "1px solid #f1c4c4",
-    background: "#fff",
-    color: "#b42318",
-    fontWeight: 900,
-    cursor: "pointer",
-  },
-  list: { display: "grid", gap: 10 },
-  saleCard: {
-    border: "1px solid #e5e7eb",
-    borderRadius: 12,
-    background: "#fff",
-    padding: 12,
-    display: "grid",
-    gap: 8,
-    cursor: "pointer",
-  },
-  line: { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start", flexWrap: "wrap" },
-  strong: { fontWeight: 950 },
-  hr: { height: 1, background: "#f1f5f9", border: 0, margin: "6px 0" },
-  err: { color: "#b42318", fontWeight: 900, fontSize: 13 },
-  ok: { color: "#067647", fontWeight: 900, fontSize: 13 },
+const styles: Record<string, React.CSSProperties> = {
+  page: { fontFamily: "Arial, sans-serif", margin: 0, padding: 0, background: "#f9f9f9", color: "#111", minHeight: "100vh" },
+  header: { background: "#e60000", color: "white", textAlign: "center", padding: 15, fontSize: "1.5rem", fontWeight: 800, position: "sticky", top: 0, zIndex: 30 },
+  controls: { display: "flex", gap: 10, justifyContent: "center", alignItems: "center", margin: 15, flexWrap: "wrap" },
+  input: { padding: "8px 10px", borderRadius: 6, border: "1px solid #ccc", outline: "none" },
+  backBtn: { background: "#333", color: "white", border: "none", padding: "8px 15px", borderRadius: 6, cursor: "pointer", fontWeight: 800 },
+  tableWrap: { width: "100%" },
+  table: { width: "95%", margin: "0 auto 24px auto", borderCollapse: "collapse", background: "white", borderRadius: 10, overflow: "hidden" },
+  th: { padding: 10, borderBottom: "1px solid #ddd", textAlign: "left", verticalAlign: "top", background: "#eee", fontWeight: 900, fontSize: 13 },
+  td: { padding: 10, borderBottom: "1px solid #ddd", textAlign: "left", verticalAlign: "top", fontSize: 13 },
+  itemsList: { fontSize: "0.9rem", color: "#444", marginTop: 5, lineHeight: 1.35 },
+  msg: { width: "95%", margin: "0 auto 10px auto", fontWeight: 800, fontSize: 13 },
+  err: { color: "#b42318" },
+  ok: { color: "#067647" },
+  small: { fontSize: 12, color: "#666" },
 };
 
 function money(n: number) {
@@ -167,70 +72,53 @@ function endOfDayISO(dateStr: string) {
 
 export default function Sales() {
   const [day, setDay] = useState(() => toISODate(new Date()));
-  const [statusMode, setStatusMode] = useState<StatusMode>("both");
+  const [search, setSearch] = useState("");
 
   const [orders, setOrders] = useState<Order[]>([]);
   const [items, setItems] = useState<Record<string, OrderItem[]>>({});
   const [customersByPhone, setCustomersByPhone] = useState<Record<string, Customer>>({});
 
-  const [openOrderId, setOpenOrderId] = useState<string | null>(null);
-
   const [loading, setLoading] = useState(true);
-  const [savingId, setSavingId] = useState<string | null>(null);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-
   const [errorMsg, setErrorMsg] = useState<string>("");
   const [successMsg, setSuccessMsg] = useState<string>("");
 
-  // Edits (order-level)
-  const [editCustomerName, setEditCustomerName] = useState<Record<string, string>>({}); // key = phone
-
-  // Edits (item-level)
-  const [editQty, setEditQty] = useState<Record<string, string>>({}); // key = orderItem.id
-  const [editUnitPrice, setEditUnitPrice] = useState<Record<string, string>>({}); // key = orderItem.id
-
-  const statuses = useMemo<OrderStatus[]>(() => {
-    if (statusMode === "confirmed") return ["confirmed"];
-    if (statusMode === "completed") return ["completed"];
-    return ["confirmed", "completed"]; // most useful in your POS flow
-  }, [statusMode]);
-
   const orderCostRevenue = useMemo(() => {
-    const map: Record<string, { revenue: number; cost: number; profit: number; itemCount: number }> = {};
+    const map: Record<string, { revenue: number; cost: number; profit: number }> = {};
     for (const o of orders) {
       const its = items[o.id] ?? [];
       const revenue = its.reduce((sum, it) => sum + Number(it.line_total || 0), 0);
-      const cost = its.reduce(
-        (sum, it) => sum + Number(it.unit_cost ?? 0) * Number(it.qty ?? 0),
-        0
-      );
+      const cost = its.reduce((sum, it) => sum + Number(it.unit_cost ?? 0) * Number(it.qty ?? 0), 0);
       const profit = revenue - cost;
-      map[o.id] = { revenue, cost, profit, itemCount: its.length };
+      map[o.id] = { revenue, cost, profit };
     }
     return map;
   }, [orders, items]);
 
-  const daySummary: DaySummary = useMemo(() => {
-    const revenue = orders.reduce((sum, o) => sum + Number(orderCostRevenue[o.id]?.revenue ?? o.total ?? 0), 0);
-    const cost = orders.reduce((sum, o) => sum + Number(orderCostRevenue[o.id]?.cost ?? 0), 0);
-    const profit = revenue - cost;
-    return { revenue, cost, profit, count: orders.length };
-  }, [orders, orderCostRevenue]);
+  function buyerNameFor(order: Order) {
+    const phone = String(order.phone ?? "");
+    const c = customersByPhone[phone];
+    return (c?.name ?? "").trim() || phone || "—";
+  }
+
+  function notesFor(order: Order) {
+    // Computed notes so we don't depend on a DB column that may not exist.
+    return `channel:${order.channel} • status:${order.status} • id:${order.id}`;
+  }
 
   async function load() {
     setLoading(true);
     setErrorMsg("");
     setSuccessMsg("");
 
-    // POS sales only
     const fromISO = startOfDayISO(day);
     const toISO = endOfDayISO(day);
 
+    // POS completed sales only (matches "Sales History")
     const { data: orderRows, error: orderErr } = await supabase
       .from("orders")
       .select("id,phone,status,channel,total,profit,created_at")
       .eq("channel", "pos")
-      .in("status", statuses)
+      .eq("status", "completed")
       .gte("created_at", fromISO)
       .lt("created_at", toISO)
       .order("created_at", { ascending: false });
@@ -255,7 +143,6 @@ export default function Sales() {
       return;
     }
 
-    // Pull items (unit_cost may exist; if not, cost will show as 0 and profit will equal revenue)
     const { data: itemRows, error: itemsErr } = await supabase
       .from("order_items")
       .select("id,order_id,product_slug,qty,unit_price,unit_cost,line_total,is_weight")
@@ -275,7 +162,6 @@ export default function Sales() {
     }
     setItems(map);
 
-    // Load customers for display (name + phone)
     const phones = Array.from(new Set(list.map((o) => String(o.phone ?? "")).filter(Boolean)));
     if (phones.length === 0) {
       setCustomersByPhone({});
@@ -289,7 +175,6 @@ export default function Sales() {
       .in("phone", phones);
 
     if (custErr) {
-      // not fatal
       setCustomersByPhone({});
       setLoading(false);
       return;
@@ -297,7 +182,7 @@ export default function Sales() {
 
     const cMap: Record<string, Customer> = {};
     for (const c of (customerRows ?? []) as Customer[]) {
-      if (!c.phone) continue;
+      if (c.phone == null) continue;
       cMap[String(c.phone)] = c;
     }
     setCustomersByPhone(cMap);
@@ -308,325 +193,116 @@ export default function Sales() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [day, statusMode]);
+  }, [day]);
 
-  function toggleOpen(orderId: string) {
-    setOpenOrderId((cur) => (cur === orderId ? null : orderId));
-  }
+  const filtered = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    if (!term) return orders;
 
-  function ensureEditSeed(orderId: string) {
-    const its = items[orderId] ?? [];
-    for (const it of its) {
-      if (editQty[it.id] == null) {
-        setEditQty((p) => ({ ...p, [it.id]: String(it.qty) }));
-      }
-      if (editUnitPrice[it.id] == null) {
-        setEditUnitPrice((p) => ({ ...p, [it.id]: String(it.unit_price) }));
-      }
-    }
-
-    const phone = String(orders.find((o) => o.id === orderId)?.phone ?? "");
-    if (phone && editCustomerName[phone] == null) {
-      const currentName = customersByPhone[phone]?.name ?? "";
-      setEditCustomerName((p) => ({ ...p, [phone]: currentName }));
-    }
-  }
-
-  async function saveOrderEdits(orderId: string) {
-    setSavingId(orderId);
-    setErrorMsg("");
-    setSuccessMsg("");
-
-    try {
-      const its = items[orderId] ?? [];
-      if (its.length === 0) {
-        setErrorMsg("No items to edit.");
-        return;
-      }
-
-      // Update customer name (by phone)
-      const order = orders.find((o) => o.id === orderId);
-      const phone = String(order?.phone ?? "");
-      const newName = phone ? (editCustomerName[phone] ?? "").trim() : "";
-
-      if (phone && newName) {
-        // If customer row exists, update name. If not, we just skip.
-        await supabase.from("customers").update({ name: newName }).eq("phone", phone);
-      }
-
-      // Update items
-      for (const it of its) {
-        const rawQty = (editQty[it.id] ?? "").trim();
-        const rawPrice = (editUnitPrice[it.id] ?? "").trim();
-
-        const nextQty = Number(rawQty);
-        const nextPrice = Number(rawPrice);
-
-        if (!Number.isFinite(nextQty) || nextQty <= 0) {
-          throw new Error(`Invalid qty for ${it.product_slug}`);
-        }
-        if (!Number.isFinite(nextPrice) || nextPrice < 0) {
-          throw new Error(`Invalid price for ${it.product_slug}`);
-        }
-
-        const nextLine = Number((nextQty * nextPrice).toFixed(2));
-
-        const { error } = await supabase
-          .from("order_items")
-          .update({ qty: nextQty, unit_price: Number(nextPrice.toFixed(2)), line_total: nextLine })
-          .eq("id", it.id);
-
-        if (error) throw new Error(error.message);
-      }
-
-      // Recalc totals/profit after edits
-      await supabase.rpc("recalc_order_total", { p_order_id: orderId });
-      await supabase.rpc("recalc_order_profit", { p_order_id: orderId });
-
-      setSuccessMsg("Saved.");
-      await load();
-    } catch (e: any) {
-      setErrorMsg(e?.message ?? "Save failed");
-    } finally {
-      setSavingId(null);
-    }
-  }
-
-  async function deleteSale(orderId: string) {
-    setDeletingId(orderId);
-    setErrorMsg("");
-    setSuccessMsg("");
-
-    try {
-      // Safer default: mark as cancelled using RPC (keeps audit trail)
-      // If your RPC blocks cancelling completed orders, fallback to hard delete below.
-      const { error: rpcErr } = await supabase.rpc("cancel_order", { p_order_id: orderId });
-
-      if (rpcErr) {
-        // Fallback: hard delete (order_items first, then order)
-        const { error: delItemsErr } = await supabase.from("order_items").delete().eq("order_id", orderId);
-        if (delItemsErr) throw new Error(delItemsErr.message);
-
-        const { error: delOrderErr } = await supabase.from("orders").delete().eq("id", orderId);
-        if (delOrderErr) throw new Error(delOrderErr.message);
-      }
-
-      setSuccessMsg("Deleted.");
-      setOpenOrderId(null);
-      await load();
-    } catch (e: any) {
-      setErrorMsg(e?.message ?? "Delete failed");
-    } finally {
-      setDeletingId(null);
-    }
-  }
+    return orders.filter((o) => {
+      const buyer = buyerNameFor(o).toLowerCase();
+      const notes = notesFor(o).toLowerCase();
+      return buyer.includes(term) || notes.includes(term);
+    });
+  }, [orders, search, customersByPhone]);
 
   return (
-    <main style={s.page}>
-      <div style={s.container}>
-        <div style={s.sticky}>
-          <div style={s.headerTop}>
-            <div>
-              <h1 style={s.title}>Sales (POS)</h1>
-              <div style={s.small}>Tap a sale to expand • Edit prices/qty • Delete if needed</div>
-            </div>
+    <main style={styles.page}>
+      <header style={styles.header}>Sales History</header>
 
-            <div style={s.row}>
-              <input
-                style={s.input}
-                type="date"
-                value={day}
-                onChange={(e) => setDay(e.target.value)}
-              />
-              <select style={s.select} value={statusMode} onChange={(e) => setStatusMode(e.target.value as StatusMode)}>
-                <option value="both">confirmed + completed</option>
-                <option value="confirmed">confirmed only</option>
-                <option value="completed">completed only</option>
-              </select>
-              <button style={s.btnGhost} type="button" onClick={() => load()} disabled={loading}>
-                {loading ? "Loading…" : "Refresh"}
-              </button>
-            </div>
-          </div>
+      <div style={styles.controls}>
+        <input
+          type="date"
+          value={day}
+          onChange={(e) => setDay(e.target.value)}
+          style={styles.input}
+        />
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search buyer or notes"
+          style={{ ...styles.input, minWidth: 220 }}
+        />
+        <button
+          type="button"
+          style={styles.backBtn}
+          onClick={() => (window.location.href = "/")}
+        >
+          Back
+        </button>
+      </div>
 
-          <div style={{ ...s.row, marginTop: 10 }}>
-            <span style={s.badge}>Sales: {daySummary.count}</span>
-            <span style={s.badge}>Revenue: {money(daySummary.revenue)}</span>
-            <span style={s.badge}>Cost: {money(daySummary.cost)}</span>
-            <span
-              style={{
-                ...s.badge,
-                ...(daySummary.profit >= 0 ? s.badgeGood : s.badgeBad),
-              }}
-            >
-              PNL: {money(daySummary.profit)}
-            </span>
-          </div>
+      {errorMsg ? <div style={{ ...styles.msg, ...styles.err }}>{errorMsg}</div> : null}
+      {successMsg ? <div style={{ ...styles.msg, ...styles.ok }}>{successMsg}</div> : null}
+      {loading ? (
+        <div style={{ ...styles.msg, ...styles.small }}>Loading…</div>
+      ) : null}
 
-          {errorMsg ? <div style={{ ...s.err, marginTop: 8 }}>{errorMsg}</div> : null}
-          {successMsg ? <div style={{ ...s.ok, marginTop: 8 }}>{successMsg}</div> : null}
-        </div>
+      <div style={styles.tableWrap}>
+        <table style={styles.table}>
+          <thead>
+            <tr>
+              <th style={styles.th}>Date</th>
+              <th style={styles.th}>Buyer</th>
+              <th style={styles.th}>Revenue</th>
+              <th style={styles.th}>Cost</th>
+              <th style={styles.th}>Profit</th>
+              <th style={styles.th}>Items</th>
+              <th style={styles.th}>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.length === 0 ? (
+              <tr>
+                <td style={styles.td} colSpan={7}>
+                  <span style={styles.small}>No sales found for this day.</span>
+                </td>
+              </tr>
+            ) : (
+              filtered.map((o) => {
+                const calc = orderCostRevenue[o.id] ?? { revenue: Number(o.total || 0), cost: 0, profit: Number(o.profit || 0) };
+                const buyer = buyerNameFor(o);
 
-        <section style={s.card}>
-          {loading ? (
-            <div style={{ opacity: 0.75 }}>Loading…</div>
-          ) : orders.length === 0 ? (
-            <div style={{ opacity: 0.75 }}>No POS sales for this day.</div>
-          ) : (
-            <div style={s.list}>
-              {orders.map((o) => {
-                const isOpen = openOrderId === o.id;
-                const phone = String(o.phone ?? "");
-                const cust = customersByPhone[phone];
-                const custName = (cust?.name ?? "").trim() || "Customer";
-
-                const calc = orderCostRevenue[o.id] ?? { revenue: Number(o.total || 0), cost: 0, profit: Number(o.profit || 0), itemCount: 0 };
-
-                const time = new Date(o.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+                const its = items[o.id] ?? [];
+                const itemsText = its.length
+                  ? its
+                      .map((it) => {
+                        const unit = it.is_weight ? "kg" : "unit";
+                        const qty = Number(it.qty || 0);
+                        return `• ${it.product_slug} (${qty}${it.is_weight ? "kg" : ""})`;
+                      })
+                      .join("\n")
+                  : "—";
 
                 return (
-                  <div
-                    key={o.id}
-                    style={s.saleCard}
-                    onClick={() => {
-                      toggleOpen(o.id);
-                      if (!isOpen) ensureEditSeed(o.id);
-                    }}
-                    role="button"
-                    aria-label={`Sale ${o.id}`}
-                  >
-                    <div style={s.line}>
-                      <div style={{ display: "grid", gap: 4 }}>
-                        <div style={s.strong}>
-                          {custName} <span style={{ fontWeight: 800, opacity: 0.7 }}>• {phone}</span>
-                        </div>
-                        <div style={s.small}>
-                          {time} • {o.status} • ID: {o.id}
-                        </div>
+                  <tr key={o.id}>
+                    <td style={styles.td}>{new Date(o.created_at).toLocaleString()}</td>
+                    <td style={styles.td}>{buyer}</td>
+                    <td style={styles.td}>{money(calc.revenue)}</td>
+                    <td style={styles.td}>{money(calc.cost)}</td>
+                    <td style={styles.td}>{money(calc.profit)}</td>
+                    <td style={styles.td}>
+                      <div style={styles.itemsList}>
+                        {itemsText.split("\n").map((line, idx) => (
+                          <div key={idx}>{line}</div>
+                        ))}
                       </div>
-
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                        <span style={s.badge}>rev {money(calc.revenue)}</span>
-                        <span style={s.badge}>cost {money(calc.cost)}</span>
-                        <span style={{ ...s.badge, ...(calc.profit >= 0 ? s.badgeGood : s.badgeBad) }}>
-                          pnl {money(calc.profit)}
-                        </span>
-                      </div>
-                    </div>
-
-                    {!isOpen ? null : (
-                      <>
-                        <hr style={s.hr} />
-
-                        <div style={{ display: "grid", gap: 10 }} onClick={(e) => e.stopPropagation()}>
-                          <div style={{ display: "grid", gap: 6 }}>
-                            <div style={{ fontWeight: 950 }}>Customer</div>
-                            <div style={s.row}>
-                              <input
-                                style={{ ...s.input, flex: 1, minWidth: 220 }}
-                                value={editCustomerName[phone] ?? ""}
-                                onChange={(e) => setEditCustomerName((p) => ({ ...p, [phone]: e.target.value }))}
-                                placeholder="Customer name"
-                              />
-                              <span style={s.badge}>{phone}</span>
-                            </div>
-                            <div style={s.small}>Name saves to customers table by phone.</div>
-                          </div>
-
-                          <div style={{ display: "grid", gap: 6 }}>
-                            <div style={{ fontWeight: 950 }}>Items</div>
-                            {(items[o.id] ?? []).length === 0 ? (
-                              <div style={{ opacity: 0.7, fontSize: 12 }}>No items.</div>
-                            ) : (
-                              <div style={{ display: "grid", gap: 8 }}>
-                                {(items[o.id] ?? []).map((it) => {
-                                  const id = it.id;
-                                  const unitLabel = it.is_weight ? "kg" : "unit";
-                                  const vQty = editQty[id] ?? String(it.qty);
-                                  const vPrice = editUnitPrice[id] ?? String(it.unit_price);
-                                  const line = Number((Number(vQty || 0) * Number(vPrice || 0)).toFixed(2));
-
-                                  return (
-                                    <div key={id} style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 10, display: "grid", gap: 6 }}>
-                                      <div style={s.line}>
-                                        <div style={{ fontWeight: 950 }}>
-                                          {it.product_slug} <span style={{ fontWeight: 800, opacity: 0.7 }}>({unitLabel})</span>
-                                        </div>
-                                        <span style={s.badge}>line {money(line)}</span>
-                                      </div>
-
-                                      <div style={s.row}>
-                                        <input
-                                          style={{ ...s.input, width: 120 }}
-                                          inputMode={it.is_weight ? "decimal" : "numeric"}
-                                          type="number"
-                                          step={it.is_weight ? "0.01" : "1"}
-                                          min={it.is_weight ? "0.01" : "1"}
-                                          value={vQty}
-                                          onChange={(e) => setEditQty((p) => ({ ...p, [id]: e.target.value }))}
-                                        />
-                                        <input
-                                          style={{ ...s.input, width: 140 }}
-                                          inputMode="decimal"
-                                          type="number"
-                                          step="0.01"
-                                          min="0"
-                                          value={vPrice}
-                                          onChange={(e) => setEditUnitPrice((p) => ({ ...p, [id]: e.target.value }))}
-                                        />
-                                        <span style={s.badge}>cost/unit {money(Number(it.unit_cost ?? 0))}</span>
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </div>
-
-                          <div style={s.row}>
-                            <button
-                              type="button"
-                              style={{
-                                ...s.btn,
-                                opacity: savingId === o.id ? 0.6 : 1,
-                                cursor: savingId === o.id ? "not-allowed" : "pointer",
-                              }}
-                              disabled={savingId === o.id}
-                              onClick={() => saveOrderEdits(o.id)}
-                            >
-                              {savingId === o.id ? "Saving…" : "Save edits"}
-                            </button>
-
-                            <button
-                              type="button"
-                              style={{
-                                ...s.btnDanger,
-                                opacity: deletingId === o.id ? 0.6 : 1,
-                                cursor: deletingId === o.id ? "not-allowed" : "pointer",
-                              }}
-                              disabled={deletingId === o.id}
-                              onClick={() => deleteSale(o.id)}
-                            >
-                              {deletingId === o.id ? "Deleting…" : "Delete sale"}
-                            </button>
-
-                            <span style={s.small}>
-                              Delete tries <b>cancel_order</b> first. If it fails, it hard-deletes.
-                            </span>
-                          </div>
-                        </div>
-                      </>
-                    )}
-                  </div>
+                    </td>
+                    <td style={styles.td}>{notesFor(o)}</td>
+                  </tr>
                 );
-              })}
-            </div>
-          )}
-        </section>
-
-        {/* keep profit in memory to avoid unused lint warnings if you later want it */}
-        <div style={{ display: "none" }}>{money(Number(daySummary.profit ?? 0))}</div>
+              })
+            )}
+          </tbody>
+        </table>
       </div>
+
+      <style jsx global>{`
+        tr:hover {
+          background: #fafafa;
+        }
+      `}</style>
     </main>
   );
 }

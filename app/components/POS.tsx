@@ -1,5 +1,3 @@
-
-// This file has been replaced with the new POS component code.
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -8,183 +6,358 @@ import { supabase } from "../../lib/supabase";
 type Product = {
   id: string;
   slug: string;
-  qty: number; // stock
+  qty: number;
   price: number;
-  cost: number; // unit cost at current time
+  cost: number;
   tags: string[];
   is_weight: boolean;
+
+  // ✅ NEW DB: product -> subsubcategories
+  // DB column name:
+  subsubcategory_id?: string | number | null;
 };
 
-type CartItem = {
+type Subsub = {
+  id: string | number;
   slug: string;
-  base_price: number; // default product price
-  price: number; // editable unit price used for sale
-  is_weight: boolean;
-  qty: number; // units or kg
 };
 
 type Customer = {
-  id: string | number; // BIGINT in DB (may come back as number or string)
+  id: string | number;
   name: string | null;
-  phone: string | null; // stored as text like "336454"
-  created_at?: string;
-  is_trusted?: boolean;
-  balance?: string | number;
-  credit_limit?: string | number | null;
+  phone: string | number | null;
+};
+
+type CartItem = {
+  key: string; // unique per row
+  slug: string; // product slug (or custom name if you add later)
+  is_weight: boolean;
+  qty: number;
+  unit_price: number;
+  unit_cost: number;
+  is_custom?: boolean;
 };
 
 type CheckoutMode = "paid" | "credit";
 
+type DaySummary = {
+  revenue: number;
+  cost: number;
+  profit: number;
+  count: number;
+};
+
+const cssVars: React.CSSProperties = {
+  // @ts-ignore
+  "--red": "#e60000",
+  // @ts-ignore
+  "--black": "#111",
+  // @ts-ignore
+  "--white": "#fff",
+  // @ts-ignore
+  "--grey": "#888",
+} as any;
+
 const s: Record<string, React.CSSProperties> = {
   page: {
-    padding: 10,
-    background: "#fafafa",
-    minHeight: "100vh",
+    ...cssVars,
+    fontFamily: "Arial, sans-serif",
+    margin: 0,
+    background: "#fff",
     color: "#111",
-    fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif",
+    minHeight: "100vh",
   },
-  container: {
-    maxWidth: 720,
-    margin: "0 auto",
-    display: "grid",
-    gap: 10,
-  },
-  stickyHeader: {
+
+  header: {
+    backgroundColor: "var(--red)",
+    padding: "15px 20px",
+    textAlign: "center",
+    fontSize: "1.8rem",
+    fontWeight: "bold",
+    color: "white",
     position: "sticky",
     top: 0,
-    zIndex: 30,
-    background: "rgba(250,250,250,0.92)",
-    backdropFilter: "blur(8px)",
-    WebkitBackdropFilter: "blur(8px)",
-    padding: "10px 12px",
-    borderBottom: "1px solid #e5e7eb",
+    zIndex: 50,
   },
-  header: {
+
+  topButtons: {
+    marginTop: 10,
     display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
     gap: 10,
+    justifyContent: "center",
     flexWrap: "wrap",
   },
-  headerCompact: {
+
+  topBtn: {
+    background: "white",
+    color: "var(--red)",
+    border: "1px solid var(--red)",
+    borderRadius: 6,
+    padding: "6px 12px",
+    cursor: "pointer",
+    fontWeight: "bold",
+  },
+
+  dailySummary: {
+    background: "#f5f5f5",
+    padding: "10px 20px",
+    textAlign: "center",
+    fontWeight: "bold",
+  },
+
+  controls: {
     display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: 10,
     flexWrap: "wrap",
-  },
-  chipRow: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" },
-  title: { margin: 0, fontSize: 18, fontWeight: 800, letterSpacing: "-0.02em" },
-  sectionTitle: { margin: 0, fontSize: 16, fontWeight: 800 },
-  badge: {
-    display: "inline-flex",
+    justifyContent: "center",
+    gap: 8,
+    padding: 10,
+    background: "#f9f9f9",
     alignItems: "center",
-    padding: "2px 8px",
-    borderRadius: 999,
-    border: "1px solid #e5e7eb",
-    fontSize: 12,
-    fontWeight: 700,
-    background: "#fff",
-    whiteSpace: "nowrap",
   },
-  card: {
+
+  categoryBtn: {
+    padding: "8px 14px",
+    border: "none",
+    borderRadius: 8,
+    cursor: "pointer",
+    background: "#ddd",
+    fontWeight: "bold",
+  },
+
+  categoryBtnActive: { background: "var(--red)", color: "white" },
+
+  productsContainer: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
+    gap: 15,
+    padding: 15,
+  },
+
+  productCard: {
     background: "#fff",
-    border: "1px solid #e5e7eb",
-    borderRadius: 12,
+    border: "1px solid #ddd",
+    borderRadius: 10,
+    padding: 15,
+    textAlign: "center",
+  },
+
+  productName: {
+    fontWeight: "bold",
+    marginBottom: 8,
+    wordBreak: "break-word",
+  },
+
+  productPrice: {
+    color: "var(--red)",
+    fontWeight: "bold",
+    cursor: "pointer",
+  },
+
+  addToCart: {
+    marginTop: 10,
+    background: "var(--red)",
+    color: "white",
+    border: "none",
+    padding: 8,
+    borderRadius: 6,
+    cursor: "pointer",
+    width: "100%",
+    fontWeight: "bold",
+  },
+
+  // customer
+  customerWrap: { padding: 15, position: "relative" },
+
+  customerInput: {
+    padding: 10,
+    width: "90%",
+    border: "1px solid #ccc",
+    borderRadius: 8,
+    outline: "none",
+  },
+
+  suggestions: {
+    border: "1px solid #ddd",
+    borderRadius: 6,
+    background: "white",
+    position: "absolute",
+    zIndex: 1000,
+    width: "90%",
+    maxHeight: 200,
+    overflowY: "auto",
+    boxShadow: "0 10px 30px rgba(0,0,0,0.08)",
+    marginTop: 6,
+  },
+
+  suggestionItem: {
+    padding: 10,
+    borderBottom: "1px solid #eee",
+    cursor: "pointer",
+    textAlign: "left",
+    background: "#fff",
+  },
+
+  // used for Search block now
+  customBox: {
+    padding: 15,
+    border: "1px solid #ddd",
+    borderRadius: 8,
+    margin: 15,
+  },
+
+  // floating buttons
+  checkoutBtn: {
+    position: "fixed",
+    bottom: 20,
+    right: 20,
+    background: "var(--red)",
+    color: "white",
+    padding: "14px 18px",
+    borderRadius: 10,
+    border: "none",
+    cursor: "pointer",
+    fontWeight: "bold",
+    zIndex: 2000,
+  },
+
+  viewSalesBtn: {
+    position: "fixed",
+    bottom: 20,
+    left: 20,
+    background: "#333",
+    color: "white",
+    padding: "14px 18px",
+    borderRadius: 10,
+    border: "none",
+    cursor: "pointer",
+    fontWeight: "bold",
+    zIndex: 2000,
+  },
+
+  // modal
+  modalOverlay: {
+    display: "flex",
+    position: "fixed",
+    top: 0,
+    left: 0,
+    width: "100%",
+    height: "100%",
+    background: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 10000,
     padding: 12,
   },
-  row: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" },
-  input: {
-    height: 38,
-    padding: "8px 10px",
+
+  modal: {
+    background: "white",
+    padding: 20,
     borderRadius: 10,
-    border: "1px solid #e5e7eb",
-    outline: "none",
-    fontSize: 14,
-    background: "#fff",
+    maxWidth: 500,
+    width: "90%",
+    maxHeight: "80%",
+    overflowY: "auto",
   },
-  btn: {
-    height: 38,
-    padding: "0 12px",
-    borderRadius: 10,
-    border: "1px solid #111",
-    background: "#111",
-    color: "#fff",
-    fontWeight: 800,
+
+  table: { width: "100%", borderCollapse: "collapse", marginBottom: 15 },
+
+  th: {
+    borderBottom: "1px solid #ccc",
+    textAlign: "left",
+    padding: 5,
+    fontWeight: "bold",
+  },
+
+  td: { borderBottom: "1px solid #ccc", textAlign: "left", padding: 5 },
+
+  qtyInput: {
+    width: 70,
+    padding: 6,
+    borderRadius: 6,
+    border: "1px solid #ccc",
+  },
+
+  priceInput: {
+    width: 90,
+    padding: 6,
+    borderRadius: 6,
+    border: "1px solid #ccc",
+  },
+
+  removeBtn: {
+    color: "red",
+    border: "none",
+    background: "none",
     cursor: "pointer",
-    whiteSpace: "nowrap",
-    opacity: 1,
+    fontWeight: "bold",
   },
-  btnGhost: {
-    height: 38,
-    padding: "0 12px",
-    borderRadius: 10,
-    border: "1px solid #e5e7eb",
-    background: "#fff",
-    color: "#111",
-    fontWeight: 800,
+
+  confirmBtn: {
+    background: "var(--red)",
+    color: "white",
+    padding: "10px 15px",
+    border: "none",
+    borderRadius: 6,
     cursor: "pointer",
-    whiteSpace: "nowrap",
-    opacity: 1,
+    fontWeight: "bold",
   },
-  btnDanger: {
-    height: 38,
-    padding: "0 12px",
-    borderRadius: 10,
-    border: "1px solid #f1c4c4",
-    background: "#fff",
-    color: "#b42318",
-    fontWeight: 800,
+
+  cancelBtn: {
+    marginLeft: 10,
+    padding: "10px 15px",
+    border: "none",
+    borderRadius: 6,
     cursor: "pointer",
-    whiteSpace: "nowrap",
-    opacity: 1,
   },
-  list: { listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 8 },
-  li: {
-    border: "1px solid #e5e7eb",
-    borderRadius: 12,
-    padding: 10,
-    display: "grid",
-    gap: 6,
-  },
-  liTop: { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" },
-  small: { fontSize: 12, opacity: 0.75 },
-  err: { color: "#b42318", fontWeight: 800, fontSize: 13 },
-  ok: { color: "#067647", fontWeight: 800, fontSize: 13 },
+
+  msg: { textAlign: "center", padding: "10px 15px", fontWeight: "bold" },
+  msgErr: { color: "#b42318" },
+  msgOk: { color: "#067647" },
 };
 
 function money(n: number) {
   return `$${Number(n || 0).toFixed(2)}`;
 }
 
-function clampMin(v: number, min: number) {
-  if (!Number.isFinite(v)) return min;
-  return Math.max(min, v);
+function startOfDayISO(d: Date) {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x.toISOString();
+}
+
+function normalizePhoneDigits(input: string) {
+  return String(input || "").replace(/\D/g, "");
 }
 
 export default function POS() {
-  const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
-  const [errorMsg, setErrorMsg] = useState<string>("");
-  const [successMsg, setSuccessMsg] = useState<string>("");
+  const [errorMsg, setErrorMsg] = useState("");
+  const [successMsg, setSuccessMsg] = useState("");
+
+  const [daySummary, setDaySummary] = useState<DaySummary>({
+    revenue: 0,
+    cost: 0,
+    profit: 0,
+    count: 0,
+  });
+
+  const [products, setProducts] = useState<Product[]>([]);
+  const [subsubs, setSubsubs] = useState<Subsub[]>([]);
+  const [subsubById, setSubsubById] = useState<Record<string, string>>({});
+
+  const [currentSubsub, setCurrentSubsub] = useState<string>("all");
+  const [search, setSearch] = useState("");
 
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [customerLoading, setCustomerLoading] = useState(false);
+  const [customerInput, setCustomerInput] = useState("");
   const [customerPickOpen, setCustomerPickOpen] = useState(false);
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
 
-  const [customerNumber, setCustomerNumber] = useState<string>("");
-  const [query, setQuery] = useState<string>("");
-
-  const [cart, setCart] = useState<Record<string, CartItem>>({});
-
-  // prevents duplicate checkouts
+  const [cart, setCart] = useState<CartItem[]>([]);
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [checkoutMode, setCheckoutMode] = useState<CheckoutMode>("paid");
   const [checkingOut, setCheckingOut] = useState(false);
 
-  // UX controls
-  const [cartOpen, setCartOpen] = useState(true);
-  const MIN_SEARCH_CHARS = 4;
-
-  const searchRef = useRef<HTMLInputElement | null>(null);
   const customerBoxRef = useRef<HTMLDivElement | null>(null);
 
   const productsBySlug = useMemo(() => {
@@ -193,75 +366,85 @@ export default function POS() {
     return map;
   }, [products]);
 
-  const cartItems = useMemo(() => Object.values(cart), [cart]);
-
-  const total = useMemo(
-    () => cartItems.reduce((sum, it) => sum + it.price * it.qty, 0),
-    [cartItems]
-  );
-
-  // keep profit calc (useful), but we won't show it in the UI to keep screen clean
-  const profit = useMemo(() => {
-    return cartItems.reduce((sum, it) => {
-      const cost = Number(productsBySlug[it.slug]?.cost ?? 0);
-      return sum + (it.price - cost) * it.qty;
-    }, 0);
-  }, [cartItems, productsBySlug]);
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q || q.length < MIN_SEARCH_CHARS) return [];
-    return products
-      .filter(
-        (p) =>
-          p.slug.toLowerCase().includes(q) ||
-          (p.tags ?? []).some((t) => String(t).toLowerCase().includes(q))
-      )
-      .slice(0, 8);
-  }, [products, query]);
+  const cartTotals = useMemo(() => {
+    const revenue = cart.reduce((sum, it) => sum + Number(it.qty || 0) * Number(it.unit_price || 0), 0);
+    const cost = cart.reduce((sum, it) => sum + Number(it.qty || 0) * Number(it.unit_cost || 0), 0);
+    return { revenue, cost, profit: revenue - cost };
+  }, [cart]);
 
   const customerSuggestions = useMemo(() => {
-    const q = customerNumber.trim();
-    if (q.length < 2) return [] as Customer[];
-    const qNorm = q.replace(/\s+/g, "");
-    const qLower = qNorm.toLowerCase();
+    const q = customerInput.trim();
+    if (!q) return [] as Customer[];
+
+    const qDigits = normalizePhoneDigits(q);
+    const qLower = q.toLowerCase();
+
+    // ✅ performance/UX: only start suggesting after 3+ letters OR 3+ digits
+    const has3Digits = qDigits.length >= 3;
+    const has3Letters = qLower.replace(/[^a-z]/g, "").length >= 3;
+    if (!has3Digits && !has3Letters) return [] as Customer[];
 
     return customers
       .filter((c) => {
         const p = c.phone == null ? "" : String(c.phone);
         const n = (c.name ?? "").toLowerCase();
-        return p.startsWith(qNorm) || p.includes(qNorm) || n.includes(qLower);
+        return (has3Digits ? p.includes(qDigits) : false) || (has3Letters ? n.includes(qLower) : false);
       })
-      .slice(0, 8);
-  }, [customers, customerNumber]);
+      .slice(0, 10);
+  }, [customers, customerInput]);
 
-  const selectedCustomer = useMemo(() => {
-    const q = customerNumber.trim().replace(/\s+/g, "");
-    if (!q) return null;
-    return customers.find((c) => (c.phone == null ? "" : String(c.phone)) === q) ?? null;
-  }, [customers, customerNumber]);
+  const showCustomerDropdown = useMemo(() => {
+    const q = customerInput.trim();
+    if (!q) return false;
+    const qDigits = normalizePhoneDigits(q);
+    const qLower = q.toLowerCase();
+    const has3Digits = qDigits.length >= 3;
+    const has3Letters = qLower.replace(/[^a-z]/g, "").length >= 3;
+    return has3Digits || has3Letters;
+  }, [customerInput]);
 
-  function maxAllowed(slug: string) {
-    return Math.max(0, Number(productsBySlug[slug]?.qty ?? 0));
+  const filteredProducts = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    let list = products;
+
+    // Only filter by category when NOT searching
+    if (!term) {
+      if (currentSubsub !== "all") {
+        list = list.filter((p) => String(p.subsubcategory_id ?? "") === currentSubsub);
+      }
+      return list;
+    }
+
+    // When searching: hide categories + show results by search only
+    list = list.filter((p) => (p.slug ?? "").toLowerCase().includes(term));
+    return list;
+  }, [products, currentSubsub, search]);
+
+  async function loadSubsubs() {
+    const { data, error } = await supabase
+      .from("subsubcategories")
+      .select("id,slug")
+      .order("id", { ascending: true });
+
+    if (!error) {
+      const list = (data ?? []) as any as Subsub[];
+      setSubsubs(list);
+
+      const map: Record<string, string> = {};
+      for (const ss of list) map[String(ss.id)] = ss.slug;
+      setSubsubById(map);
+    }
   }
 
-  function inCart(slug: string) {
-    return Number(cart[slug]?.qty ?? 0);
-  }
-
-  function available(slug: string) {
-    return Math.max(0, maxAllowed(slug) - inCart(slug));
-  }
-
-  async function load() {
+  async function loadProducts() {
     setLoading(true);
     setErrorMsg("");
     setSuccessMsg("");
 
     const { data, error } = await supabase
       .from("products")
-      .select("id,slug,qty,price,cost,tags,is_weight")
-      .order("created_at", { ascending: false });
+      .select("id,slug,qty,price,cost,tags,is_weight,subsubcategory_id")
+      .order("id", { ascending: false });
 
     if (error) {
       setErrorMsg(error.message);
@@ -270,28 +453,57 @@ export default function POS() {
       return;
     }
 
-    setProducts((data ?? []) as Product[]);
+    setProducts((data ?? []) as any as Product[]);
     setLoading(false);
-
-    // focus search for fast scanning
-    setTimeout(() => searchRef.current?.focus(), 50);
   }
 
   async function loadCustomers() {
-    setCustomerLoading(true);
     const { data, error } = await supabase
       .from("customers")
       .select("id,name,phone")
       .order("id", { ascending: false })
-      .limit(2000);
+      .limit(4000);
 
     if (!error) setCustomers((data ?? []) as any);
-    setCustomerLoading(false);
+  }
+
+  async function loadDailySummary() {
+    const fromISO = startOfDayISO(new Date());
+
+    const { data: orderRows, error: oErr } = await supabase
+      .from("orders")
+      .select("id,created_at,status,channel")
+      .eq("channel", "pos")
+      .eq("status", "completed")
+      .gte("created_at", fromISO);
+
+    if (oErr) return;
+
+    const orders = (orderRows ?? []) as any[];
+    const ids = orders.map((o) => o.id).filter(Boolean);
+
+    let revenue = 0;
+    let cost = 0;
+
+    if (ids.length > 0) {
+      const { data: itemRows } = await supabase
+        .from("order_items")
+        .select("order_id,qty,unit_cost,line_total")
+        .in("order_id", ids);
+
+      const items = (itemRows ?? []) as any[];
+      revenue = items.reduce((s2, it) => s2 + Number(it.line_total || 0), 0);
+      cost = items.reduce((s2, it) => s2 + Number(it.unit_cost || 0) * Number(it.qty || 0), 0);
+    }
+
+    setDaySummary({ revenue, cost, profit: revenue - cost, count: orders.length });
   }
 
   useEffect(() => {
-    load();
+    loadSubsubs();
+    loadProducts();
     loadCustomers();
+    loadDailySummary();
   }, []);
 
   // close customer dropdown on outside click
@@ -307,155 +519,117 @@ export default function POS() {
     return () => document.removeEventListener("mousedown", onDocDown);
   }, []);
 
-  function addOne(p: Product) {
+  function addToCartFromProduct(p: Product) {
     setErrorMsg("");
     setSuccessMsg("");
 
-    const min = p.is_weight ? 0.01 : 1;
-    const step = p.is_weight ? 0.25 : 1; // fast POS: add 0.25kg per click
+    let qty = 1;
 
-    const avail = available(p.slug);
-    if (avail <= 0) {
-      setErrorMsg(`Out of stock: ${p.slug}`);
-      return;
-    }
-
-    if (step > avail) {
-      setErrorMsg(`Not enough stock for ${p.slug}. Available: ${avail}`);
-      return;
-    }
-
-    setCart((prev) => {
-      const existing = prev[p.slug];
-      const nextQty = existing ? existing.qty + step : clampMin(step, min);
-      const max = maxAllowed(p.slug);
-      if (nextQty > max) {
-        setErrorMsg(`Not enough stock for ${p.slug}. Max: ${max}`);
-        return prev;
+    if (p.is_weight) {
+      const raw = prompt("Enter weight (kg):", "1");
+      const w = Number(raw);
+      if (!Number.isFinite(w) || w <= 0) {
+        setErrorMsg("Invalid weight");
+        return;
       }
-      return {
-        ...prev,
-        [p.slug]: {
-          slug: p.slug,
-          base_price: Number(p.price) || 0,
-          price: Number(existing?.price ?? p.price) || 0,
-          is_weight: !!p.is_weight,
-          qty: nextQty,
-        },
-      };
-    });
+      qty = w;
+    }
 
-    // collapse search dropdown after adding item
-    setQuery("");
-
-    // keep search text for quick repeat scanning; select all text
-    setTimeout(() => {
-      searchRef.current?.focus();
-      searchRef.current?.select();
-    }, 0);
-  }
-
-  function setQty(slug: string, qty: number, isWeight: boolean) {
-    setErrorMsg("");
-    setSuccessMsg("");
-
-    const min = isWeight ? 0.01 : 1;
-    const safe = clampMin(Number(qty), min);
-    const max = maxAllowed(slug);
-
-    if (safe > max) {
-      setErrorMsg(`Cannot exceed stock for ${slug}. Max: ${max}`);
+    const stock = Math.max(0, Number(p.qty ?? 0));
+    if (qty > stock) {
+      setErrorMsg(`Not enough stock for ${p.slug}. Stock: ${stock}`);
       return;
     }
 
-    setCart((prev) => {
-      if (!prev[slug]) return prev;
-      return { ...prev, [slug]: { ...prev[slug], qty: safe } };
-    });
+    const key = `${p.slug}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    setCart((prev) => [
+      ...prev,
+      {
+        key,
+        slug: p.slug,
+        is_weight: !!p.is_weight,
+        qty,
+        unit_price: Number(p.price || 0),
+        unit_cost: Number(p.cost || 0),
+        is_custom: false,
+      },
+    ]);
   }
 
-  function setUnitPrice(slug: string, price: number) {
-    setErrorMsg("");
-    setSuccessMsg("");
+  function setCartQty(key: string, qty: number) {
+    setCart((prev) =>
+      prev.map((it) => {
+        if (it.key !== key) return it;
+        const safe = Number(qty);
+        if (!Number.isFinite(safe) || safe <= 0) return it;
 
-    const safe = Number(price);
-    if (!Number.isFinite(safe) || safe < 0) {
-      setErrorMsg("Invalid price.");
-      return;
+        // if it's a real product, enforce stock
+        const p = productsBySlug[it.slug];
+        if (p) {
+          const stock = Math.max(0, Number(p.qty ?? 0));
+          if (safe > stock) return { ...it, qty: stock };
+        }
+
+        return { ...it, qty: safe };
+      })
+    );
+  }
+
+  function setCartPrice(key: string, unitPrice: number) {
+    setCart((prev) =>
+      prev.map((it) => {
+        if (it.key !== key) return it;
+        const safe = Number(unitPrice);
+        if (!Number.isFinite(safe) || safe < 0) return it;
+        return { ...it, unit_price: Number(safe.toFixed(2)) };
+      })
+    );
+  }
+
+  function removeCartItem(key: string) {
+    setCart((prev) => prev.filter((it) => it.key !== key));
+  }
+
+  async function ensureCustomerFromInput() {
+    // picked existing
+    if (selectedCustomer?.phone != null) {
+      return { name: selectedCustomer.name ?? null, phone: String(selectedCustomer.phone) };
     }
 
-    setCart((prev) => {
-      if (!prev[slug]) return prev;
-      return { ...prev, [slug]: { ...prev[slug], price: Number(safe.toFixed(2)) } };
-    });
-  }
+    const raw = customerInput.trim();
+    if (!raw) throw new Error("Enter customer name or phone");
 
-  function remove(slug: string) {
-    setCart((prev) => {
-      const next = { ...prev };
-      delete next[slug];
-      return next;
-    });
-  }
+    const phoneDigits = normalizePhoneDigits(raw);
+    if (!phoneDigits) throw new Error("Customer phone is required (type a phone number)");
 
-  function clearCartOnly() {
-    setCart({});
-    setQuery("");
-  }
+    const nameGuess = raw.replace(phoneDigits, "").replace(/[()]/g, "").trim();
 
-  function clearAllAfterCheckout() {
-    setCart({});
-    setQuery("");
-    setCustomerNumber("");
-    setCustomerPickOpen(false);
-  }
-
-  async function ensureCustomer(phoneText: string) {
-    const norm = phoneText.trim().replace(/\s+/g, "");
-
-    // allow any number (3+ digits)
-    if (!/^\d{3,}$/.test(norm)) throw new Error("Invalid customer number");
-
-    // local cache
-    const existingLocal = customers.find((c) => String(c.phone ?? "") === norm);
-    if (existingLocal) return existingLocal;
-
-    // DB check (phone is TEXT)
     const { data: found, error: findErr } = await supabase
       .from("customers")
       .select("id,name,phone")
-      .eq("phone", norm)
+      .eq("phone", phoneDigits)
       .maybeSingle();
 
     if (!findErr && found) {
-      const c = found as any as Customer;
-      setCustomers((prev) => (prev.some((x) => String(x.id) === String(c.id)) ? prev : [c, ...prev]));
-      return c;
+      return { name: (found as any).name ?? null, phone: String((found as any).phone ?? phoneDigits) };
     }
 
-    // create ONLY when checkout calls this
-    // customers.id is BIGINT in your DB, so we use the numeric phone as the id.
-    const phoneNum = Number(norm);
-    if (!Number.isFinite(phoneNum)) throw new Error("Invalid customer number");
+    // your DB uses bigint id=phone
+    const phoneNum = Number(phoneDigits);
+    if (!Number.isFinite(phoneNum)) throw new Error("Invalid phone");
 
-    const { data, error } = await supabase
+    const { data: created, error: insErr } = await supabase
       .from("customers")
-      .insert({ id: phoneNum, phone: norm })
+      .insert({ id: phoneNum, phone: phoneDigits, name: nameGuess || null })
       .select("id,name,phone")
       .single();
 
-    if (error) throw error;
+    if (insErr) throw insErr;
 
-    const created = data as any as Customer;
-    setCustomers((prev) => {
-      if (prev.some((x) => String(x.id) === String(created.id))) return prev;
-      return [created, ...prev];
-    });
-    return created;
+    return { name: (created as any).name ?? null, phone: String((created as any).phone ?? phoneDigits) };
   }
 
-  async function checkoutPOS(mode: CheckoutMode) {
-    // prevent duplicate checkouts (double click / slow network)
+  async function checkoutPOS() {
     if (checkingOut) return;
 
     setCheckingOut(true);
@@ -463,36 +637,19 @@ export default function POS() {
     setSuccessMsg("");
 
     try {
-      const phone = customerNumber.trim();
-      if (!phone) {
-        setErrorMsg("Customer number is required.");
-        return;
-      }
-      if (cartItems.length === 0) {
-        setErrorMsg("Cart is empty.");
-        return;
+      if (cart.length === 0) throw new Error("Cart is empty!");
+
+      const cust = await ensureCustomerFromInput();
+      const phone = cust.phone;
+
+      // validate stock for real products only
+      for (const it of cart) {
+        const p = productsBySlug[it.slug];
+        if (!p) continue;
+        const stock = Math.max(0, Number(p.qty ?? 0));
+        if (it.qty > stock) throw new Error(`Not enough stock for ${it.slug}. In cart: ${it.qty}, Stock: ${stock}`);
       }
 
-      // ensure customer exists (and avoid duplicates)
-      let customer: Customer | null = null;
-      try {
-        customer = await ensureCustomer(phone);
-        void customer;
-      } catch (e: any) {
-        setErrorMsg(e?.message ?? "Failed to create/find customer");
-        return;
-      }
-
-      // validate stock again
-      for (const it of cartItems) {
-        const stock = maxAllowed(it.slug);
-        if (it.qty > stock) {
-          setErrorMsg(`Not enough stock for ${it.slug}. In cart: ${it.qty}, Stock: ${stock}`);
-          return;
-        }
-      }
-
-      // Create order as pending (because confirm_order expects pending)
       const { data: orderRow, error: orderErr } = await supabase
         .from("orders")
         .insert({
@@ -500,81 +657,64 @@ export default function POS() {
           status: "pending",
           channel: "pos",
           total: 0,
-          note: mode === "credit" ? "CREDIT" : null,
+          note: checkoutMode === "credit" ? "CREDIT" : null,
         })
         .select("id")
         .single();
 
-      if (orderErr || !orderRow?.id) {
-        setErrorMsg(orderErr?.message ?? "Failed to create order");
-        return;
-      }
+      if (orderErr || !orderRow?.id) throw new Error(orderErr?.message ?? "Failed to create order");
 
       const orderId = orderRow.id as string;
 
-      // Insert order items
-      const payload = cartItems.map((it) => ({
-        order_id: orderId,
-        product_slug: it.slug,
-        qty: it.qty,
-        unit_price: it.price,
-        unit_cost: Number(productsBySlug[it.slug]?.cost ?? 0),
-        line_total: Number((it.price * it.qty).toFixed(2)),
-        is_weight: it.is_weight,
-      }));
+      const payload = cart
+        .filter((it) => !!productsBySlug[it.slug])
+        .map((it) => ({
+          order_id: orderId,
+          product_slug: it.slug,
+          qty: it.qty,
+          unit_price: it.unit_price,
+          unit_cost: Number(productsBySlug[it.slug]?.cost ?? it.unit_cost ?? 0),
+          line_total: Number((it.unit_price * it.qty).toFixed(2)),
+          is_weight: it.is_weight,
+        }));
+
+      if (payload.length === 0) throw new Error("No valid product items to checkout.");
 
       const { error: itemsErr } = await supabase.from("order_items").insert(payload);
-      if (itemsErr) {
-        setErrorMsg(itemsErr.message);
-        return;
-      }
+      if (itemsErr) throw new Error(itemsErr.message);
 
-      // recalc totals/profit
       await supabase.rpc("recalc_order_total", { p_order_id: orderId });
       await supabase.rpc("recalc_order_profit", { p_order_id: orderId });
 
-      // POS reduces stock immediately + marks completed:
-      // confirm (reduces stock) then complete.
       const { error: confErr } = await supabase.rpc("confirm_order", { p_order_id: orderId });
-      if (confErr) {
-        console.error("confirm_order failed", confErr);
-        setErrorMsg(confErr.message);
-        return;
-      }
+      if (confErr) throw new Error(confErr.message);
 
       const { error: compErr } = await supabase.rpc("complete_order", { p_order_id: orderId });
-      if (compErr) {
-        console.error("complete_order failed", compErr);
-        setErrorMsg(compErr.message);
-        return;
-      }
+      if (compErr) throw new Error(compErr.message);
 
-      if (mode === "credit") {
-        const amount = Number(total.toFixed(2));
-        const { error: credErr } = await supabase
+      if (checkoutMode === "credit") {
+        const amount = Number(cartTotals.revenue.toFixed(2));
+        await supabase
           .from("credits")
           .insert({
-            // NOTE: credits.customer_id is BIGINT in your DB, but customers.id is UUID.
-            // So we do NOT write the UUID into customer_id.
             customer_id: null,
             customer_phone: Number(phone),
             order_id: orderId,
             amount,
             status: "open",
           } as any);
-
-        if (credErr) {
-          console.error("credits insert failed", credErr);
-          setSuccessMsg(`✅ Completed (CREDIT). Order: ${orderId}. (But credit record failed: ${credErr.message})`);
-        } else {
-          setSuccessMsg(`✅ Completed (CREDIT). Order: ${orderId}. Saved to credits.`);
-        }
-      } else {
-        setSuccessMsg(`✅ Completed (PAID). Order: ${orderId}.`);
       }
 
-      clearAllAfterCheckout();
-      await load(); // refresh stock
+      setSuccessMsg(`Checkout complete! Order: ${orderId}`);
+      setCart([]);
+      setCheckoutOpen(false);
+      setSelectedCustomer(null);
+      setCustomerInput("");
+
+      await loadProducts();
+      await loadDailySummary();
+    } catch (e: any) {
+      setErrorMsg(e?.message ?? "Checkout failed");
     } finally {
       setCheckingOut(false);
     }
@@ -582,390 +722,281 @@ export default function POS() {
 
   return (
     <main style={s.page}>
-      <div style={s.container}>
-        <div style={s.stickyHeader}>
-          <div style={s.headerCompact}>
-            <h1 style={s.title}>POS</h1>
-            <div style={s.chipRow}>
-              <span style={s.badge}>Cart: {cartItems.length}</span>
-              <span style={s.badge}>Total: {money(total)}</span>
-              <button
-                type="button"
-                style={{
-                  ...s.btnGhost,
-                  height: 34,
-                  padding: "0 10px",
-                  borderRadius: 999,
-                  opacity: checkingOut ? 0.6 : 1,
-                  cursor: checkingOut ? "not-allowed" : "pointer",
-                }}
-                onClick={() => {
-                  if (checkingOut) return;
-                  setCartOpen((v) => !v);
-                }}
-                disabled={checkingOut}
-              >
-                {cartOpen ? "Hide cart" : "Show cart"}
-              </button>
-            </div>
-          </div>
+      <header style={s.header}>
+        Products
+        <div style={s.topButtons}>
+          {/* UI-only like your HTML. Hook to real routes later */}
+          <button type="button" style={s.topBtn} onClick={() => (window.location.href = "/")}>
+            Customers
+          </button>
+          <button type="button" style={s.topBtn} onClick={() => (window.location.href = "/")}>
+            Deyn
+          </button>
         </div>
+      </header>
 
-        {(errorMsg || successMsg) && (
-          <div style={{ ...s.card, borderColor: errorMsg ? "#f1c4c4" : "#c7f0d1" }}>
-            {errorMsg ? <div style={s.err}>{errorMsg}</div> : null}
-            {successMsg ? <div style={s.ok}>{successMsg}</div> : null}
+      <div style={s.dailySummary}>
+        {loading
+          ? "Loading daily totals..."
+          : `📊 Today — Sales: ${daySummary.count} | Revenue: ${money(daySummary.revenue)} | Cost: ${money(daySummary.cost)} | PNL: ${money(daySummary.profit)}`}
+      </div>
+
+      {errorMsg ? <div style={{ ...s.msg, ...s.msgErr }}>{errorMsg}</div> : null}
+      {successMsg ? <div style={{ ...s.msg, ...s.msgOk }}>{successMsg}</div> : null}
+
+      {/* CUSTOMER INPUT */}
+      <div style={s.customerWrap} ref={customerBoxRef}>
+        <label>
+          <b>Customer:</b>
+        </label>
+        <br />
+        <input
+          type="text"
+          value={customerInput}
+          placeholder="Enter customer name or phone..."
+          style={s.customerInput}
+          autoComplete="off"
+          onChange={(e) => {
+            const v = e.target.value;
+            setCustomerInput(v);
+            setSelectedCustomer(null);
+
+            const d = normalizePhoneDigits(v);
+            const letters = v.toLowerCase().replace(/[^a-z]/g, "");
+            const ok = d.length >= 3 || letters.length >= 3;
+            setCustomerPickOpen(ok);
+          }}
+          onFocus={() => {
+            const d = normalizePhoneDigits(customerInput);
+            const letters = customerInput.toLowerCase().replace(/[^a-z]/g, "");
+            const ok = d.length >= 3 || letters.length >= 3;
+            setCustomerPickOpen(ok);
+          }}
+          disabled={checkingOut}
+        />
+
+        {customerPickOpen && showCustomerDropdown ? (
+          <div style={s.suggestions}>
+            {customerSuggestions.length === 0 ? (
+              <div style={{ padding: 10, color: "#888" }}>
+                No matches — new customer
+              </div>
+            ) : (
+              customerSuggestions.map((c) => (
+                <div
+                  key={String(c.id)}
+                  style={s.suggestionItem}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    setSelectedCustomer(c);
+                    setCustomerInput(`${c.name ?? "Customer"} (${String(c.phone ?? "")})`);
+                    setCustomerPickOpen(false);
+                  }}
+                >
+                  <b>{c.name ?? "Customer"}</b> — {String(c.phone ?? "")}
+                </div>
+              ))
+            )}
           </div>
-        )}
+        ) : null}
+      </div>
 
-        <div style={s.card}>
-          <div ref={customerBoxRef} style={{ position: "relative" }}>
-            <div style={s.row}>
-              <input
-                style={{ ...s.input, flex: 1, minWidth: 220 }}
-                placeholder={customerLoading ? "Loading customers…" : "Customer number"}
-                value={customerNumber}
-                onChange={(e) => {
-                  setCustomerNumber(e.target.value);
-                  setCustomerPickOpen(true);
-                }}
-                onFocus={() => setCustomerPickOpen(true)}
-                disabled={checkingOut}
-              />
+      {/* SEARCH (replaces custom item section) */}
+      <div style={s.customBox}>
+        <h3 style={{ marginTop: 0 }}>Search</h3>
+        <input
+          type="text"
+          value={search}
+          placeholder={loading ? "Loading..." : "Search products..."}
+          style={{ ...s.customerInput, width: "90%" }}
+          onChange={(e) => setSearch(e.target.value)}
+          disabled={loading || checkingOut}
+        />
+        {search.trim() ? (
+          <div style={{ marginTop: 8, fontSize: 12, color: "#666" }}>
+            Showing search results — categories hidden
+          </div>
+        ) : null}
+      </div>
 
-              {selectedCustomer ? (
-                <span style={s.badge}>
-                  {(selectedCustomer.name ?? "Customer")} • {selectedCustomer.phone}
-                </span>
-              ) : null}
+      {/* PRODUCTS */}
+      {!search.trim() ? (
+        <div style={s.controls}>
+          <button
+            type="button"
+            style={{ ...s.categoryBtn, ...(currentSubsub === "all" ? s.categoryBtnActive : null) }}
+            onClick={() => setCurrentSubsub("all")}
+          >
+            All
+          </button>
 
-              <button
-                style={{
-                  ...s.btnGhost,
-                  opacity: checkingOut ? 0.6 : 1,
-                  cursor: checkingOut ? "not-allowed" : "pointer",
-                }}
-                type="button"
-                onClick={() => {
-                  if (checkingOut) return;
-                  setCustomerNumber("");
-                  setCustomerPickOpen(false);
-                }}
-                disabled={checkingOut}
-              >
-                Clear
-              </button>
+          {subsubs.map((ss) => (
+            <button
+              key={String(ss.id)}
+              type="button"
+              style={{ ...s.categoryBtn, ...(currentSubsub === String(ss.id) ? s.categoryBtnActive : null) }}
+              onClick={() => setCurrentSubsub(String(ss.id))}
+            >
+              {ss.slug}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      <div style={s.productsContainer}>
+        {filteredProducts.map((p) => (
+          <div key={p.id} style={s.productCard}>
+            <div style={s.productName}>{p.slug}</div>
+
+            {/* Click = show profit % like your HTML */}
+            <div
+              style={s.productPrice}
+              onClick={(e) => {
+                const el = e.currentTarget as HTMLDivElement;
+                const mode = el.getAttribute("data-mode") || "price";
+
+                if (mode === "price") {
+                  const price = Number(p.price || 0);
+                  const cost = Number(p.cost || 0);
+                  const margin = price <= 0 ? 0 : ((price - cost) / price) * 100;
+
+                  el.textContent = `${money(price)} | Profit: ${margin.toFixed(1)}%`;
+                  el.style.color = margin > 30 ? "green" : margin >= 20 ? "orange" : "red";
+                  el.setAttribute("data-mode", "profit");
+                } else {
+                  el.textContent = money(p.price);
+                  el.style.color = "var(--red)";
+                  el.setAttribute("data-mode", "price");
+                }
+              }}
+            >
+              {money(p.price)}
             </div>
 
-            {customerPickOpen && customerSuggestions.length > 0 ? (
-              <div
-                style={{
-                  position: "absolute",
-                  zIndex: 20,
-                  top: 44,
-                  left: 0,
-                  right: 0,
-                  background: "#fff",
-                  border: "1px solid #e5e7eb",
-                  borderRadius: 12,
-                  padding: 6,
-                  boxShadow: "0 10px 30px rgba(0,0,0,0.06)",
-                }}
-              >
-                {customerSuggestions.map((c) => (
-                  <button
-                    key={c.id}
-                    type="button"
-                    onClick={() => {
-                      setCustomerNumber(String(c.phone ?? ""));
-                      setCustomerPickOpen(false);
-                      setTimeout(() => searchRef.current?.focus(), 0);
-                    }}
-                    style={{
-                      width: "100%",
-                      textAlign: "left",
-                      padding: "10px 10px",
-                      borderRadius: 10,
-                      border: "1px solid transparent",
-                      background: "#fff",
-                      cursor: "pointer",
-                      fontWeight: 700,
-                    }}
-                  >
-                    {(c.name ?? "Customer")} — {c.phone}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-          </div>
+            <div style={{ fontSize: 12, color: "#666", marginTop: 6 }}>
+              {p.is_weight ? "Weighted (kg)" : "Unit"} • stock {p.qty}
+              {p.subsubcategory_id != null ? ` • ${subsubById[String(p.subsubcategory_id)] ?? ""}` : ""}
+            </div>
 
-          <div style={{ height: 10 }} />
-
-          <div style={s.row}>
-            <input
-              ref={searchRef}
-              style={{ ...s.input, flex: 1, minWidth: 260 }}
-              placeholder={loading ? "Loading products…" : `Search item (type ${MIN_SEARCH_CHARS}+ chars)`}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              disabled={loading || checkingOut}
-            />
-            <button
-              style={{
-                ...s.btnGhost,
-                opacity: checkingOut ? 0.6 : 1,
-                cursor: checkingOut ? "not-allowed" : "pointer",
-              }}
-              type="button"
-              onClick={() => {
-                if (checkingOut) return;
-                setQuery("");
-                searchRef.current?.focus();
-              }}
-              disabled={checkingOut}
-            >
-              Clear
+            <button type="button" style={s.addToCart} onClick={() => addToCartFromProduct(p)} disabled={checkingOut}>
+              Add to Cart
             </button>
           </div>
+        ))}
+      </div>
 
-          <div style={s.small}>Tip: type and tap Add. (Weight adds 0.25kg per tap.)</div>
+      <button type="button" style={s.viewSalesBtn} onClick={() => (window.location.href = "/")}>
+        View Sales History
+      </button>
 
-          {query.trim().length > 0 && query.trim().length < MIN_SEARCH_CHARS ? (
-            <div style={{ ...s.small, marginTop: 10, opacity: 0.7 }}>
-              Type {MIN_SEARCH_CHARS}+ characters to search…
-            </div>
-          ) : null}
+      <button
+        type="button"
+        style={s.checkoutBtn}
+        onClick={() => {
+          if (!cart.length) {
+            setErrorMsg("Cart is empty!");
+            return;
+          }
+          setCheckoutOpen(true);
+        }}
+      >
+        Checkout ({cart.length})
+      </button>
 
-          {query.trim().length >= MIN_SEARCH_CHARS && (
-            <ul style={{ ...s.list, marginTop: 10 }}>
-              {filtered.length === 0 ? (
-                <li style={{ ...s.li, opacity: 0.7 }}>No match.</li>
-              ) : (
-                filtered.map((p) => (
-                  <li key={p.id} style={s.li}>
-                    <div style={s.liTop}>
-                      <div>
-                        <div style={{ fontWeight: 800 }}>{p.slug}</div>
-                        <div style={s.small}>
-                          {p.is_weight ? "kg" : "unit"} • {money(p.price)} • stock {p.qty}
-                        </div>
-                      </div>
-                      <button
-                        style={{
-                          ...s.btn,
-                          opacity: checkingOut ? 0.6 : 1,
-                          cursor: checkingOut ? "not-allowed" : "pointer",
-                        }}
-                        type="button"
-                        onClick={() => {
-                          if (checkingOut) return;
-                          addOne(p);
-                        }}
-                        disabled={checkingOut}
-                      >
-                        Add
-                      </button>
-                    </div>
-                  </li>
-                ))
-              )}
-            </ul>
-          )}
-        </div>
+      {/* CHECKOUT MODAL */}
+      {checkoutOpen ? (
+        <div style={s.modalOverlay}>
+          <div style={s.modal}>
+            <h2 style={{ marginTop: 0 }}>Checkout</h2>
 
-        <div style={s.card}>
-          <div style={s.headerCompact}>
-            <h2 style={s.sectionTitle}>Cart</h2>
-            <div style={s.row}>
-              <button
-                style={{
-                  ...s.btnGhost,
-                  opacity: cartItems.length === 0 || checkingOut ? 0.6 : 1,
-                  cursor: cartItems.length === 0 || checkingOut ? "not-allowed" : "pointer",
-                }}
-                type="button"
-                onClick={() => {
-                  if (checkingOut) return;
-                  clearCartOnly();
-                }}
-                disabled={cartItems.length === 0 || checkingOut}
-              >
-                Clear cart
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+              <button type="button" style={s.topBtn} onClick={() => setCheckoutMode("paid")}>
+                Paid {checkoutMode === "paid" ? "✓" : ""}
               </button>
-
-              <button
-                style={{
-                  ...s.btn,
-                  opacity: cartItems.length === 0 || checkingOut ? 0.6 : 1,
-                  cursor: cartItems.length === 0 || checkingOut ? "not-allowed" : "pointer",
-                }}
-                type="button"
-                onClick={() => checkoutPOS("paid")}
-                disabled={cartItems.length === 0 || checkingOut}
-              >
-                {checkingOut ? "Processing…" : "Checkout (Paid)"}
-              </button>
-
-              <button
-                style={{
-                  ...s.btnGhost,
-                  opacity: cartItems.length === 0 || checkingOut ? 0.6 : 1,
-                  cursor: cartItems.length === 0 || checkingOut ? "not-allowed" : "pointer",
-                }}
-                type="button"
-                onClick={() => checkoutPOS("credit")}
-                disabled={cartItems.length === 0 || checkingOut}
-              >
-                {checkingOut ? "Processing…" : "Checkout (Credit)"}
+              <button type="button" style={s.topBtn} onClick={() => setCheckoutMode("credit")}>
+                Credit {checkoutMode === "credit" ? "✓" : ""}
               </button>
             </div>
-          </div>
 
-          {!cartOpen ? (
-            <div style={{ opacity: 0.7 }}>Cart hidden.</div>
-          ) : cartItems.length === 0 ? (
-            <div style={{ opacity: 0.7 }}>Empty.</div>
-          ) : (
-            <ul style={s.list}>
-              {cartItems.map((it) => {
-                const max = maxAllowed(it.slug);
-                const line = it.price * it.qty;
-                return (
-                  <li key={it.slug} style={s.li}>
-                    <div style={s.liTop}>
-                      <div>
-                        <div style={{ fontWeight: 800 }}>{it.slug}</div>
-                        <div style={s.small}>
-                          {it.is_weight ? "kg" : "unit"} • unit {money(it.price)}
-                          {Number(it.base_price) !== Number(it.price)
-                            ? ` (default ${money(it.base_price)})`
-                            : ""} • stock {max}
-                        </div>
-                      </div>
-                      <button
-                        style={{
-                          ...s.btnDanger,
-                          opacity: checkingOut ? 0.6 : 1,
-                          cursor: checkingOut ? "not-allowed" : "pointer",
-                        }}
-                        type="button"
-                        onClick={() => {
-                          if (checkingOut) return;
-                          remove(it.slug);
-                        }}
-                        disabled={checkingOut}
-                      >
-                        Remove
-                      </button>
-                    </div>
-
-                    <div style={s.row}>
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 8,
-                        }}
-                      >
-                        <button
-                          type="button"
-                          aria-label="Decrease quantity"
-                          style={{
-                            width: 44,
-                            height: 44,
-                            borderRadius: 12,
-                            border: "1px solid #e5e7eb",
-                            background: "#fff",
-                            fontWeight: 900,
-                            fontSize: 18,
-                            cursor: checkingOut ? "not-allowed" : "pointer",
-                            opacity: checkingOut ? 0.6 : 1,
-                          }}
-                          disabled={checkingOut}
-                          onClick={() => {
-                            const step = it.is_weight ? 0.25 : 1;
-                            const min = it.is_weight ? 0.01 : 1;
-                            const next = Number(it.qty) - step;
-                            const safe = Number.isFinite(next) ? next : min;
-                            setQty(it.slug, safe < min ? min : safe, it.is_weight);
-                          }}
-                        >
-                          −
-                        </button>
-
+            <table style={s.table}>
+              <thead>
+                <tr>
+                  <th style={s.th}>Item</th>
+                  <th style={s.th}>Qty</th>
+                  <th style={s.th}>Price</th>
+                  <th style={s.th}>Total</th>
+                  <th style={s.th}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {cart.map((it) => {
+                  const rowTotal = Number((it.qty * it.unit_price).toFixed(2));
+                  return (
+                    <tr key={it.key}>
+                      <td style={s.td}>{it.slug}</td>
+                      <td style={s.td}>
                         <input
-                          inputMode={it.is_weight ? "decimal" : "numeric"}
-                          style={{
-                            height: 44,
-                            width: 90,
-                            textAlign: "center",
-                            borderRadius: 12,
-                            border: "1px solid #e5e7eb",
-                            outline: "none",
-                            fontSize: 16,
-                            fontWeight: 900,
-                            background: "#fff",
-                            padding: "0 10px",
-                          }}
                           type="number"
-                          step={it.is_weight ? "0.25" : "1"}
-                          min={it.is_weight ? 0.01 : 1}
+                          min={0.01}
+                          step={it.is_weight ? 0.01 : 1}
                           value={String(it.qty)}
-                          onChange={(e) => setQty(it.slug, Number(e.target.value), it.is_weight)}
+                          style={s.qtyInput}
+                          onChange={(e) => setCartQty(it.key, Number(e.target.value))}
                           disabled={checkingOut}
                         />
-
-                        <button
-                          type="button"
-                          aria-label="Increase quantity"
-                          style={{
-                            width: 44,
-                            height: 44,
-                            borderRadius: 12,
-                            border: "1px solid #e5e7eb",
-                            background: "#fff",
-                            fontWeight: 900,
-                            fontSize: 18,
-                            cursor: checkingOut ? "not-allowed" : "pointer",
-                            opacity: checkingOut ? 0.6 : 1,
-                          }}
+                      </td>
+                      <td style={s.td}>
+                        <input
+                          type="number"
+                          min={0}
+                          step={0.01}
+                          value={String(it.unit_price)}
+                          style={s.priceInput}
+                          onChange={(e) => setCartPrice(it.key, Number(e.target.value))}
                           disabled={checkingOut}
-                          onClick={() => {
-                            const step = it.is_weight ? 0.25 : 1;
-                            const min = it.is_weight ? 0.01 : 1;
-                            const next = Number(it.qty) + step;
-                            const safe = Number.isFinite(next) ? next : min;
-                            setQty(it.slug, safe, it.is_weight);
-                          }}
-                        >
-                          +
+                        />
+                      </td>
+                      <td style={s.td}>{money(rowTotal)}</td>
+                      <td style={s.td}>
+                        <button type="button" style={s.removeBtn} onClick={() => removeCartItem(it.key)} disabled={checkingOut}>
+                          ✖
                         </button>
-                      </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
 
-                      <input
-                        style={{ ...s.input, width: 140 }}
-                        type="number"
-                        step="0.01"
-                        min={0}
-                        value={String(it.price)}
-                        onChange={(e) => setUnitPrice(it.slug, Number(e.target.value))}
-                        disabled={checkingOut}
-                        placeholder="Unit price"
-                      />
+            <div style={{ textAlign: "right", marginBottom: 15 }}>
+              <b>Total: {money(cartTotals.revenue)}</b>
+            </div>
 
-                      <span style={s.badge}>Line: {money(line)}</span>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
+            <button
+              type="button"
+              style={{ ...s.confirmBtn, opacity: checkingOut ? 0.6 : 1 }}
+              onClick={checkoutPOS}
+              disabled={checkingOut}
+            >
+              {checkingOut ? "Processing..." : "Confirm Sale"}
+            </button>
+
+            <button type="button" style={s.cancelBtn} onClick={() => setCheckoutOpen(false)} disabled={checkingOut}>
+              Cancel
+            </button>
+          </div>
         </div>
+      ) : null}
 
-        <div style={{ textAlign: "center", fontSize: 12, opacity: 0.6 }}>
-          POS creates channel=pos and completes immediately (confirm → complete). Checkout is locked while processing to prevent duplicates.
-        </div>
-      </div>
+      {/* Responsive tweaks */}
+      <style jsx global>{`
+        @media (max-width: 600px) {
+          .products-container {
+            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+            gap: 10px;
+          }
+        }
+      `}</style>
     </main>
   );
 }
