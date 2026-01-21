@@ -49,7 +49,7 @@ const NAV: NavItem[] = [
   // { key: "online", label: "PHONE", icon: "🌐" },
   // { key: "pricing", label: "Pricing", icon: "💰" },
   // { key: "upload", label: "Upload", icon: "⬆️" },
-  // { key: "orders", label: "Orders", icon: "📋" },
+  { key: "orders", label: "Orders", icon: "📋" },
   // { key: "pnl", label: "P&L", icon: "📈" },
   // { key: "expenses", label: "Expenses", icon: "💸" },
       { key: "qtycost", label: "qtycost", icon: "🧾" },
