@@ -15,7 +15,6 @@ import Inventory from "./components/Inventory";
 import Suppliers from "./components/Suppliers";
 import QtyCost from "./components/qtycost";
 import VegAdmin from "./components/veg";
-import Customer from "./components/Customer";
 type SectionKey =
   | "products"
   | "fill"
@@ -27,21 +26,17 @@ type SectionKey =
   | "pos"
   | "qtycost"
   | "credits"
-  | "customer"
   | "pnl"
   | "expenses"
   | "inventory"
   | "sales"
-
-  | "veg";
-
-
+  | "veg"
+;
 type NavItem = { key: SectionKey; label: string; icon: string };
 
 const NAV: NavItem[] = [
     { key: "pos", label: "POS", icon: "🧾" },
-        { key: "sales", label: "Sales", icon: "🧾" },
-  { key: "customer", label: "Customers", icon: "👤" },
+    { key: "sales", label: "Sales", icon: "🧾" },
 
   // { key: "inventory", label: "Inventory", icon: "📦" },
   // { key: "veg", label: "Veg", icon: "🥦" },
@@ -212,9 +207,8 @@ export default function Page() {
           <Price />
         ) : active === "sales" ? (
           <Sales />
-        ) : active === "customer" ? (
-          <Customer />
-         ) : active === "pos" ? (
+        ) 
+        : active === "pos" ? (
           <POS />
         ) : active === "veg" ? (
           <VegAdmin />

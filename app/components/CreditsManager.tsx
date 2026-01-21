@@ -186,6 +186,43 @@ export default function CreditsManager() {
   // One payment box per customer
   const [payCustomerByKey, setPayCustomerByKey] = useState<Record<string, string>>({});
 
+  // One name draft per customer (for editing name inline)
+  const [nameDraftByCustomerId, setNameDraftByCustomerId] = useState<Record<string, string>>({});
+  const [editingCustomerId, setEditingCustomerId] = useState<string>("");
+  async function saveCustomerName(customer: Customer, rawName: string) {
+    setErr("");
+    setOk("");
+
+    const name = rawName.trim();
+    if (name.length < 2) {
+      setErr("Name must be at least 2 characters.");
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("customers")
+      .update({ name })
+      .eq("id", customer.id)
+      .select("id,name,phone")
+      .single();
+
+    if (error) {
+      setErr(error.message);
+      return;
+    }
+
+    const updated = data as any as Customer;
+
+    setCustomers((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+    setNameDraftByCustomerId((prev) => {
+      const next = { ...prev };
+      delete next[String(updated.id)];
+      return next;
+    });
+
+    setOk("Customer name saved.");
+  }
+
   // Add credit picker
   const [addQuery, setAddQuery] = useState<string>("");
   const [addSelected, setAddSelected] = useState<Customer | null>(null);
@@ -202,6 +239,12 @@ export default function CreditsManager() {
     if (cr.customer_id != null) return `cid:${cr.customer_id}`;
     if (cr.customer_phone != null) return `phone:${cr.customer_phone}`;
     return `unknown:${cr.id}`;
+  }
+
+  function nameMeta(cust?: Customer | null) {
+    const nm = String(cust?.name ?? "").trim();
+    const isPlaceholder = nm.length === 0 || nm.toLowerCase() === "customer";
+    return { nm, isPlaceholder, display: isPlaceholder ? "Customer" : nm };
   }
 
   const addSuggestions = useMemo(() => {
@@ -259,6 +302,38 @@ export default function CreditsManager() {
     const created = data as any as Customer;
     setCustomers((prev) => [created, ...prev]);
     return created;
+  }
+
+  async function linkCustomerFromPhoneForGroup(phoneNum: number, groupKey: string) {
+    // Ensure there is a customers row for this phone
+    const cust = await ensureCustomer(String(phoneNum));
+
+    // Update credits in DB: any credit rows with this phone and missing customer_id
+    const { error } = await supabase
+      .from("credits")
+      .update({ customer_id: cust.id })
+      .eq("customer_phone", phoneNum)
+      .is("customer_id", null);
+
+    if (error) throw error;
+
+    // Update local state so UI instantly has customer_id
+    setCredits((prev) =>
+      prev.map((cr) => {
+        if (Number(cr.customer_phone ?? 0) === Number(phoneNum) && (cr.customer_id == null || cr.customer_id === 0)) {
+          return { ...cr, customer_id: cust.id };
+        }
+        return cr;
+      })
+    );
+
+    // Expand this group so name edit UI is visible
+    if (expandedKey !== groupKey) {
+      // We can't reliably access group orderIds/creditIds here; caller will expand.
+      setExpandedKey(groupKey);
+    }
+
+    return cust;
   }
 
   // --- data loaders ---
@@ -393,8 +468,8 @@ export default function CreditsManager() {
       const key = customerKey(cr);
       const cust = cr.customer_id != null ? byCustomerId[String(cr.customer_id)] : null;
       const phone = cr.customer_phone ?? cust?.phone ?? null;
-      const name = cust?.name ?? "Customer";
-      const title = `${name} • ${phone ?? ""}`.trim();
+      const meta = nameMeta(cust);
+      const title = `${meta.display} • ${phone ?? ""}`.trim();
 
       if (!m[key]) m[key] = { key, title, credits: [], creditIds: [], orderIds: [] };
 
@@ -802,10 +877,106 @@ export default function CreditsManager() {
 
               return (
                 <div key={g.key}>
-                  <button type="button" style={s.cardBtn} onClick={() => toggleExpand(g.key, g.orderIds, g.creditIds)}>
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    style={s.cardBtn}
+                    onClick={() => toggleExpand(g.key, g.orderIds, g.creditIds)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        toggleExpand(g.key, g.orderIds, g.creditIds);
+                      }
+                    }}
+                  >
                     <div style={s.rowBetween}>
                       <div style={{ display: "grid", gap: 2 }}>
-                        <div style={{ fontWeight: 700 }}>{g.title}</div>
+                        {(() => {
+                          const anyCr = g.credits[0];
+                          const cust = anyCr?.customer_id != null ? byCustomerId[String(anyCr.customer_id)] : null;
+                          const phone = anyCr?.customer_phone ?? cust?.phone ?? null;
+
+                          if (!cust) {
+                            const phoneNum = Number(phone ?? 0);
+                            const canLink = Number.isFinite(phoneNum) && phoneNum > 0;
+
+                            return (
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                <span style={{ fontWeight: 800 }}>Customer</span>
+                                <button
+                                  type="button"
+                                  disabled={!canLink}
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    if (!canLink) return;
+                                    try {
+                                      const linked = await linkCustomerFromPhoneForGroup(phoneNum, g.key);
+                                      const cidKey = String(linked.id);
+                                      setEditingCustomerId(cidKey);
+                                      setNameDraftByCustomerId((p) => ({ ...p, [cidKey]: "" }));
+                                      if (expandedKey !== g.key) {
+                                        await toggleExpand(g.key, g.orderIds, g.creditIds);
+                                      }
+                                    } catch (errAny: any) {
+                                      setErr(errAny?.message ?? "Failed to link customer");
+                                    }
+                                  }}
+                                  style={{
+                                    height: 28,
+                                    width: 28,
+                                    borderRadius: 8,
+                                    border: "1px solid #e5e7eb",
+                                    background: "#fff",
+                                    cursor: canLink ? "pointer" : "not-allowed",
+                                    lineHeight: "26px",
+                                    textAlign: "center",
+                                    padding: 0,
+                                    opacity: canLink ? 1 : 0.5,
+                                  }}
+                                  title={canLink ? "Add name" : "No phone"}
+                                >
+                                  ✏️
+                                </button>
+                                <span style={s.muted}>• {phone ?? ""}</span>
+                              </div>
+                            );
+                          }
+
+                          const meta = nameMeta(cust);
+
+                          return (
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                              <span style={{ fontWeight: 800 }}>{meta.display}</span>
+                              <button
+                                type="button"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  const cidKey = String(cust.id);
+                                  setEditingCustomerId(cidKey);
+                                  setNameDraftByCustomerId((p) => ({ ...p, [cidKey]: meta.isPlaceholder ? "" : meta.nm }));
+                                  if (expandedKey !== g.key) {
+                                    await toggleExpand(g.key, g.orderIds, g.creditIds);
+                                  }
+                                }}
+                                style={{
+                                  height: 28,
+                                  width: 28,
+                                  borderRadius: 8,
+                                  border: "1px solid #e5e7eb",
+                                  background: "#fff",
+                                  cursor: "pointer",
+                                  lineHeight: "26px",
+                                  textAlign: "center",
+                                  padding: 0,
+                                }}
+                                title={meta.isPlaceholder ? "Add name" : "Edit name"}
+                              >
+                                ✏️
+                              </button>
+                              <span style={s.muted}>• {phone ?? ""}</span>
+                            </div>
+                          );
+                        })()}
                         <div style={s.muted}>
                           taken {money(totals.taken)} • paid {money(totals.paid)}
                         </div>
@@ -826,11 +997,134 @@ export default function CreditsManager() {
                         </span>
                       </div>
                     </div>
-                  </button>
+                  </div>
 
                   {expandedKey === g.key ? (
                     <div style={{ ...s.card, marginTop: 8 }}>
                       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
+                        {(() => {
+                          const anyCr = g.credits[0];
+                          const cust = anyCr?.customer_id != null ? byCustomerId[String(anyCr.customer_id)] : null;
+                          if (!cust) {
+                            const phoneNum = Number(anyCr?.customer_phone ?? 0);
+                            const canLink = Number.isFinite(phoneNum) && phoneNum > 0;
+
+                            return (
+                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                <span style={{ fontWeight: 800 }}>Customer</span>
+                                <button
+                                  type="button"
+                                  disabled={!canLink}
+                                  style={{
+                                    height: 28,
+                                    width: 28,
+                                    borderRadius: 8,
+                                    border: "1px solid #e5e7eb",
+                                    background: "#fff",
+                                    cursor: canLink ? "pointer" : "not-allowed",
+                                    lineHeight: "26px",
+                                    textAlign: "center",
+                                    padding: 0,
+                                    opacity: canLink ? 1 : 0.5,
+                                  }}
+                                  title={canLink ? "Add name" : "No phone"}
+                                  onClick={async () => {
+                                    if (!canLink) return;
+                                    try {
+                                      const linked = await linkCustomerFromPhoneForGroup(phoneNum, g.key);
+                                      const cidKey = String(linked.id);
+                                      setEditingCustomerId(cidKey);
+                                      setNameDraftByCustomerId((p) => ({ ...p, [cidKey]: "" }));
+                                    } catch (errAny: any) {
+                                      setErr(errAny?.message ?? "Failed to link customer");
+                                    }
+                                  }}
+                                >
+                                  ✏️
+                                </button>
+                              </div>
+                            );
+                          }
+
+                          const cidKey = String(cust.id);
+                          const meta = nameMeta(cust);
+                          const nm = meta.nm;
+                          const missingName = meta.isPlaceholder;
+
+                          const isEditing = editingCustomerId === cidKey;
+                          const draft = nameDraftByCustomerId[cidKey] ?? "";
+
+                          if (!isEditing) {
+                            return (
+                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                <span style={{ fontWeight: 800 }}>{meta.display}</span>
+                                <button
+                                  type="button"
+                                  style={{
+                                    height: 28,
+                                    width: 28,
+                                    borderRadius: 8,
+                                    border: "1px solid #e5e7eb",
+                                    background: "#fff",
+                                    cursor: "pointer",
+                                    lineHeight: "26px",
+                                    textAlign: "center",
+                                    padding: 0,
+                                  }}
+                                  title={missingName ? "Add name" : "Edit name"}
+                                  onClick={() => {
+                                    setEditingCustomerId(cidKey);
+                                    setNameDraftByCustomerId((p) => ({ ...p, [cidKey]: missingName ? "" : meta.nm }));
+                                  }}
+                                >
+                                  ✏️
+                                </button>
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <>
+                              <input
+                                style={{ ...s.inputSm, width: 180 }}
+                                placeholder={missingName ? "Add name" : "Edit name"}
+                                value={draft}
+                                onChange={(e) => setNameDraftByCustomerId((p) => ({ ...p, [cidKey]: e.target.value }))}
+                              />
+                              <button
+                                style={s.btnSm}
+                                type="button"
+                                onClick={async () => {
+                                  await saveCustomerName(cust, draft);
+                                  setEditingCustomerId("");
+                                }}
+                                title="Save customer name"
+                              >
+                                Save
+                              </button>
+                              <button
+                                type="button"
+                                style={{
+                                  ...s.btnSm,
+                                  background: "#fff",
+                                  color: "#111",
+                                  borderColor: "#e5e7eb",
+                                }}
+                                onClick={() => {
+                                  setEditingCustomerId("");
+                                  setNameDraftByCustomerId((p) => {
+                                    const next = { ...p };
+                                    delete next[cidKey];
+                                    return next;
+                                  });
+                                }}
+                                title="Cancel"
+                              >
+                                Cancel
+                              </button>
+                            </>
+                          );
+                        })()}
                         <input
                           style={{ ...s.inputSm, width: 160 }}
                           placeholder="Payment"

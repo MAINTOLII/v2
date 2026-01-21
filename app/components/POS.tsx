@@ -253,7 +253,7 @@ const s: Record<string, React.CSSProperties> = {
     background: "white",
     padding: 20,
     borderRadius: 10,
-    maxWidth: 500,
+    maxWidth: 520,
     width: "90%",
     maxHeight: "80%",
     overflowY: "auto",
@@ -358,6 +358,14 @@ export default function POS() {
   const [checkoutMode, setCheckoutMode] = useState<CheckoutMode>("paid");
   const [checkingOut, setCheckingOut] = useState(false);
 
+  const CART_STORAGE_KEY = "pos_cart_v1";
+
+  // Click row -> edit -> Save (supports editing Total for bulk deals)
+  const [rowEditKey, setRowEditKey] = useState<string | null>(null);
+  const [rowDraftQty, setRowDraftQty] = useState<string>("");
+  const [rowDraftUnitPrice, setRowDraftUnitPrice] = useState<string>("");
+  const [rowDraftTotal, setRowDraftTotal] = useState<string>("");
+
   const customerBoxRef = useRef<HTMLDivElement | null>(null);
 
   const productsBySlug = useMemo(() => {
@@ -420,11 +428,80 @@ export default function POS() {
     return list;
   }, [products, currentSubsub, search]);
 
+  function safeParseJSON<T>(raw: string | null): T | null {
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as T;
+    } catch {
+      return null;
+    }
+  }
+
+  function clearCartAndPersisted() {
+    setCart([]);
+    setCheckoutOpen(false);
+    setRowEditKey(null);
+    setErrorMsg("");
+    setSuccessMsg("Cart cleared.");
+    try {
+      localStorage.removeItem(CART_STORAGE_KEY);
+    } catch {}
+  }
+
+  function beginRowEdit(it: CartItem) {
+    setRowEditKey(it.key);
+    setRowDraftQty(String(it.qty));
+    setRowDraftUnitPrice(String(it.unit_price));
+    setRowDraftTotal(String(Number((it.qty * it.unit_price).toFixed(2))));
+  }
+
+  function cancelRowEdit() {
+    setRowEditKey(null);
+    setRowDraftQty("");
+    setRowDraftUnitPrice("");
+    setRowDraftTotal("");
+  }
+
+  function commitRowEdit(key: string) {
+    const qty = Number(rowDraftQty);
+    if (!Number.isFinite(qty) || qty <= 0) {
+      setErrorMsg("Invalid quantity");
+      return;
+    }
+
+    // If total was edited, derive unit price = total / qty (bulk deals)
+    let unitPrice: number;
+    const total = Number(rowDraftTotal);
+    const typedUnit = Number(rowDraftUnitPrice);
+
+    if (rowDraftTotal.trim() !== "" && Number.isFinite(total) && total >= 0) {
+      unitPrice = total / qty;
+    } else {
+      unitPrice = typedUnit;
+    }
+
+    if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+      setErrorMsg("Invalid price");
+      return;
+    }
+
+    setCart((prev) =>
+      prev.map((it) =>
+        it.key !== key
+          ? it
+          : {
+              ...it,
+              qty,
+              unit_price: Number(unitPrice.toFixed(2)),
+            }
+      )
+    );
+
+    cancelRowEdit();
+  }
+
   async function loadSubsubs() {
-    const { data, error } = await supabase
-      .from("subsubcategories")
-      .select("id,slug")
-      .order("id", { ascending: true });
+    const { data, error } = await supabase.from("subsubcategories").select("id,slug").order("id", { ascending: true });
 
     if (!error) {
       const list = (data ?? []) as any as Subsub[];
@@ -458,12 +535,7 @@ export default function POS() {
   }
 
   async function loadCustomers() {
-    const { data, error } = await supabase
-      .from("customers")
-      .select("id,name,phone")
-      .order("id", { ascending: false })
-      .limit(4000);
-
+    const { data, error } = await supabase.from("customers").select("id,name,phone").order("id", { ascending: false }).limit(4000);
     if (!error) setCustomers((data ?? []) as any);
   }
 
@@ -486,10 +558,7 @@ export default function POS() {
     let cost = 0;
 
     if (ids.length > 0) {
-      const { data: itemRows } = await supabase
-        .from("order_items")
-        .select("order_id,qty,unit_cost,line_total")
-        .in("order_id", ids);
+      const { data: itemRows } = await supabase.from("order_items").select("order_id,qty,unit_cost,line_total").in("order_id", ids);
 
       const items = (itemRows ?? []) as any[];
       revenue = items.reduce((s2, it) => s2 + Number(it.line_total || 0), 0);
@@ -500,6 +569,19 @@ export default function POS() {
   }
 
   useEffect(() => {
+    // Restore cart/customer draft if tab was closed
+    try {
+      const saved = safeParseJSON<{
+        cart: CartItem[];
+        customerInput: string;
+        checkoutMode: CheckoutMode;
+      }>(localStorage.getItem(CART_STORAGE_KEY));
+
+      if (saved?.cart?.length) setCart(saved.cart);
+      if (typeof saved?.customerInput === "string") setCustomerInput(saved.customerInput);
+      if (saved?.checkoutMode) setCheckoutMode(saved.checkoutMode);
+    } catch {}
+
     loadSubsubs();
     loadProducts();
     loadCustomers();
@@ -518,6 +600,18 @@ export default function POS() {
     document.addEventListener("mousedown", onDocDown);
     return () => document.removeEventListener("mousedown", onDocDown);
   }, []);
+
+  // Persist cart + customer input until cleared
+  useEffect(() => {
+    try {
+      const payload = { cart, customerInput, checkoutMode };
+      if ((cart?.length ?? 0) > 0 || (customerInput?.trim() ?? "") !== "") {
+        localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(payload));
+      } else {
+        localStorage.removeItem(CART_STORAGE_KEY);
+      }
+    } catch {}
+  }, [cart, customerInput, checkoutMode]);
 
   function addToCartFromProduct(p: Product) {
     setErrorMsg("");
@@ -556,38 +650,9 @@ export default function POS() {
     ]);
   }
 
-  function setCartQty(key: string, qty: number) {
-    setCart((prev) =>
-      prev.map((it) => {
-        if (it.key !== key) return it;
-        const safe = Number(qty);
-        if (!Number.isFinite(safe) || safe <= 0) return it;
-
-        // if it's a real product, enforce stock
-        const p = productsBySlug[it.slug];
-        if (p) {
-          const stock = Math.max(0, Number(p.qty ?? 0));
-          if (safe > stock) return { ...it, qty: stock };
-        }
-
-        return { ...it, qty: safe };
-      })
-    );
-  }
-
-  function setCartPrice(key: string, unitPrice: number) {
-    setCart((prev) =>
-      prev.map((it) => {
-        if (it.key !== key) return it;
-        const safe = Number(unitPrice);
-        if (!Number.isFinite(safe) || safe < 0) return it;
-        return { ...it, unit_price: Number(safe.toFixed(2)) };
-      })
-    );
-  }
-
   function removeCartItem(key: string) {
     setCart((prev) => prev.filter((it) => it.key !== key));
+    if (rowEditKey === key) cancelRowEdit();
   }
 
   async function ensureCustomerFromInput() {
@@ -604,11 +669,7 @@ export default function POS() {
 
     const nameGuess = raw.replace(phoneDigits, "").replace(/[()]/g, "").trim();
 
-    const { data: found, error: findErr } = await supabase
-      .from("customers")
-      .select("id,name,phone")
-      .eq("phone", phoneDigits)
-      .maybeSingle();
+    const { data: found, error: findErr } = await supabase.from("customers").select("id,name,phone").eq("phone", phoneDigits).maybeSingle();
 
     if (!findErr && found) {
       return { name: (found as any).name ?? null, phone: String((found as any).phone ?? phoneDigits) };
@@ -707,9 +768,13 @@ export default function POS() {
 
       setSuccessMsg(`Checkout complete! Order: ${orderId}`);
       setCart([]);
+      try {
+        localStorage.removeItem(CART_STORAGE_KEY);
+      } catch {}
       setCheckoutOpen(false);
       setSelectedCustomer(null);
       setCustomerInput("");
+      cancelRowEdit();
 
       await loadProducts();
       await loadDailySummary();
@@ -724,15 +789,14 @@ export default function POS() {
     <main style={s.page}>
       <header style={s.header}>
         Products
-        <div style={s.topButtons}>
-          {/* UI-only like your HTML. Hook to real routes later */}
-          <button type="button" style={s.topBtn} onClick={() => (window.location.href = "/")}>
+        {/* <div style={s.topButtons}>
+          <button type="button" style={s.topBtn} onClick={() => (window.location.href = "/customers")}>
             Customers
           </button>
-          <button type="button" style={s.topBtn} onClick={() => (window.location.href = "/")}>
+          <button type="button" style={s.topBtn} onClick={() => (window.location.href = "/credit")}>
             Deyn
           </button>
-        </div>
+        </div> */}
       </header>
 
       <div style={s.dailySummary}>
@@ -778,9 +842,7 @@ export default function POS() {
         {customerPickOpen && showCustomerDropdown ? (
           <div style={s.suggestions}>
             {customerSuggestions.length === 0 ? (
-              <div style={{ padding: 10, color: "#888" }}>
-                No matches — new customer
-              </div>
+              <div style={{ padding: 10, color: "#888" }}>No matches — new customer</div>
             ) : (
               customerSuggestions.map((c) => (
                 <div
@@ -801,7 +863,7 @@ export default function POS() {
         ) : null}
       </div>
 
-      {/* SEARCH (replaces custom item section) */}
+      {/* SEARCH */}
       <div style={s.customBox}>
         <h3 style={{ marginTop: 0 }}>Search</h3>
         <input
@@ -812,11 +874,7 @@ export default function POS() {
           onChange={(e) => setSearch(e.target.value)}
           disabled={loading || checkingOut}
         />
-        {search.trim() ? (
-          <div style={{ marginTop: 8, fontSize: 12, color: "#666" }}>
-            Showing search results — categories hidden
-          </div>
-        ) : null}
+        {search.trim() ? <div style={{ marginTop: 8, fontSize: 12, color: "#666" }}>Showing search results — categories hidden</div> : null}
       </div>
 
       {/* PRODUCTS */}
@@ -848,7 +906,7 @@ export default function POS() {
           <div key={p.id} style={s.productCard}>
             <div style={s.productName}>{p.slug}</div>
 
-            {/* Click = show profit % like your HTML */}
+            {/* Click = show profit % */}
             <div
               style={s.productPrice}
               onClick={(e) => {
@@ -885,9 +943,9 @@ export default function POS() {
         ))}
       </div>
 
-      <button type="button" style={s.viewSalesBtn} onClick={() => (window.location.href = "/")}>
+      {/* <button type="button" style={s.viewSalesBtn} onClick={() => (window.location.href = "/")}>
         View Sales History
-      </button>
+      </button> */}
 
       <button
         type="button"
@@ -918,6 +976,10 @@ export default function POS() {
               </button>
             </div>
 
+            <div style={{ fontSize: 12, color: "#666", marginBottom: 8 }}>
+              Tip: click an item name to edit qty/price/total (bulk deals supported).
+            </div>
+
             <table style={s.table}>
               <thead>
                 <tr>
@@ -931,36 +993,119 @@ export default function POS() {
               <tbody>
                 {cart.map((it) => {
                   const rowTotal = Number((it.qty * it.unit_price).toFixed(2));
+                  const isEditing = rowEditKey === it.key;
+
                   return (
                     <tr key={it.key}>
-                      <td style={s.td}>{it.slug}</td>
-                      <td style={s.td}>
-                        <input
-                          type="number"
-                          min={0.01}
-                          step={it.is_weight ? 0.01 : 1}
-                          value={String(it.qty)}
-                          style={s.qtyInput}
-                          onChange={(e) => setCartQty(it.key, Number(e.target.value))}
-                          disabled={checkingOut}
-                        />
+                      <td
+                        style={{ ...s.td, cursor: "pointer", textDecoration: isEditing ? "underline" : "none" }}
+                        onClick={() => {
+                          if (checkingOut) return;
+                          if (isEditing) return;
+                          beginRowEdit(it);
+                        }}
+                        title="Click to edit this row"
+                      >
+                        {it.slug}
                       </td>
+
                       <td style={s.td}>
-                        <input
-                          type="number"
-                          min={0}
-                          step={0.01}
-                          value={String(it.unit_price)}
-                          style={s.priceInput}
-                          onChange={(e) => setCartPrice(it.key, Number(e.target.value))}
-                          disabled={checkingOut}
-                        />
+                        {isEditing ? (
+                          <input
+                            type="number"
+                            min={0.01}
+                            step={it.is_weight ? 0.01 : 1}
+                            value={rowDraftQty}
+                            style={s.qtyInput}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setRowDraftQty(v);
+                              const q = Number(v);
+                              const up = Number(rowDraftUnitPrice);
+                              if (Number.isFinite(q) && q > 0 && Number.isFinite(up)) {
+                                setRowDraftTotal(String(Number((q * up).toFixed(2))));
+                              }
+                            }}
+                            disabled={checkingOut}
+                          />
+                        ) : (
+                          <span>{it.qty}</span>
+                        )}
                       </td>
-                      <td style={s.td}>{money(rowTotal)}</td>
+
                       <td style={s.td}>
-                        <button type="button" style={s.removeBtn} onClick={() => removeCartItem(it.key)} disabled={checkingOut}>
-                          ✖
-                        </button>
+                        {isEditing ? (
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.01}
+                            value={rowDraftUnitPrice}
+                            style={s.priceInput}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setRowDraftUnitPrice(v);
+                              const q = Number(rowDraftQty);
+                              const up = Number(v);
+                              if (Number.isFinite(q) && q > 0 && Number.isFinite(up)) {
+                                setRowDraftTotal(String(Number((q * up).toFixed(2))));
+                              }
+                            }}
+                            disabled={checkingOut}
+                          />
+                        ) : (
+                          <span>{money(it.unit_price)}</span>
+                        )}
+                      </td>
+
+                      <td style={s.td}>
+                        {isEditing ? (
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.01}
+                            value={rowDraftTotal}
+                            style={s.priceInput}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setRowDraftTotal(v);
+                              const q = Number(rowDraftQty);
+                              const t = Number(v);
+                              if (Number.isFinite(q) && q > 0 && Number.isFinite(t)) {
+                                setRowDraftUnitPrice(String(Number((t / q).toFixed(2))));
+                              }
+                            }}
+                            disabled={checkingOut}
+                          />
+                        ) : (
+                          <span>{money(rowTotal)}</span>
+                        )}
+                      </td>
+
+                      <td style={s.td}>
+                        {isEditing ? (
+                          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                            <button
+                              type="button"
+                              style={{ ...s.topBtn, padding: "6px 10px" }}
+                              onClick={() => commitRowEdit(it.key)}
+                              disabled={checkingOut}
+                            >
+                              Save
+                            </button>
+                            <button
+                              type="button"
+                              style={{ ...s.topBtn, padding: "6px 10px" }}
+                              onClick={cancelRowEdit}
+                              disabled={checkingOut}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <button type="button" style={s.removeBtn} onClick={() => removeCartItem(it.key)} disabled={checkingOut}>
+                            ✖
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );
@@ -982,7 +1127,16 @@ export default function POS() {
             </button>
 
             <button type="button" style={s.cancelBtn} onClick={() => setCheckoutOpen(false)} disabled={checkingOut}>
-              Cancel
+              Close
+            </button>
+
+            <button
+              type="button"
+              style={{ ...s.cancelBtn, background: "#ffe4e6", color: "#b42318", fontWeight: "bold" }}
+              onClick={clearCartAndPersisted}
+              disabled={checkingOut}
+            >
+              Clear Cart
             </button>
           </div>
         </div>

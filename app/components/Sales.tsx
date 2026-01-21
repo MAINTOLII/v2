@@ -38,6 +38,7 @@ const styles: Record<string, React.CSSProperties> = {
   controls: { display: "flex", gap: 10, justifyContent: "center", alignItems: "center", margin: 15, flexWrap: "wrap" },
   input: { padding: "8px 10px", borderRadius: 6, border: "1px solid #ccc", outline: "none" },
   backBtn: { background: "#333", color: "white", border: "none", padding: "8px 15px", borderRadius: 6, cursor: "pointer", fontWeight: 800 },
+  deleteBtn: { background: "#b42318", color: "white", border: "none", padding: "6px 10px", borderRadius: 6, cursor: "pointer", fontWeight: 900 },
   tableWrap: { width: "100%" },
   table: { width: "95%", margin: "0 auto 24px auto", borderCollapse: "collapse", background: "white", borderRadius: 10, overflow: "hidden" },
   th: { padding: 10, borderBottom: "1px solid #ddd", textAlign: "left", verticalAlign: "top", background: "#eee", fontWeight: 900, fontSize: 13 },
@@ -190,6 +191,30 @@ export default function Sales() {
     setLoading(false);
   }
 
+  async function deleteOrder(order: Order) {
+    const ok = window.confirm(`Delete this order?\n\nID: ${order.id}\nBuyer: ${buyerNameFor(order)}\nTotal: ${money(Number(order.total || 0))}`);
+    if (!ok) return;
+
+    setErrorMsg("");
+    setSuccessMsg("");
+
+    // Delete children first to satisfy foreign key constraints (if present)
+    const { error: delItemsErr } = await supabase.from("order_items").delete().eq("order_id", order.id);
+    if (delItemsErr) {
+      setErrorMsg(delItemsErr.message);
+      return;
+    }
+
+    const { error: delOrderErr } = await supabase.from("orders").delete().eq("id", order.id);
+    if (delOrderErr) {
+      setErrorMsg(delOrderErr.message);
+      return;
+    }
+
+    setSuccessMsg("Order deleted.");
+    await load();
+  }
+
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -201,8 +226,9 @@ export default function Sales() {
 
     return orders.filter((o) => {
       const buyer = buyerNameFor(o).toLowerCase();
-      const notes = notesFor(o).toLowerCase();
-      return buyer.includes(term) || notes.includes(term);
+      const id = String(o.id ?? "").toLowerCase();
+      const phone = String(o.phone ?? "").toLowerCase();
+      return buyer.includes(term) || id.includes(term) || phone.includes(term);
     });
   }, [orders, search, customersByPhone]);
 
@@ -221,7 +247,7 @@ export default function Sales() {
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search buyer or notes"
+          placeholder="Search buyer, phone, or order id"
           style={{ ...styles.input, minWidth: 220 }}
         />
         <button
@@ -249,7 +275,7 @@ export default function Sales() {
               <th style={styles.th}>Cost</th>
               <th style={styles.th}>Profit</th>
               <th style={styles.th}>Items</th>
-              <th style={styles.th}>Notes</th>
+              <th style={styles.th}>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -289,7 +315,11 @@ export default function Sales() {
                         ))}
                       </div>
                     </td>
-                    <td style={styles.td}>{notesFor(o)}</td>
+                    <td style={styles.td}>
+                      <button type="button" style={styles.deleteBtn} onClick={() => deleteOrder(o)}>
+                        Delete
+                      </button>
+                    </td>
                   </tr>
                 );
               })
