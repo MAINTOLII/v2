@@ -15,6 +15,7 @@ import Inventory from "./components/Inventory";
 import Suppliers from "./components/Suppliers";
 import QtyCost from "./components/qtycost";
 import VegAdmin from "./components/veg";
+import EditProductsCarousel from "./components/edit";
 type SectionKey =
   | "products"
   | "fill"
@@ -31,29 +32,27 @@ type SectionKey =
   | "inventory"
   | "sales"
   | "veg"
+  | "edit"
 ;
 type NavItem = { key: SectionKey; label: string; icon: string };
 
 const NAV: NavItem[] = [
-    { key: "pos", label: "POS", icon: "🧾" },
-    { key: "sales", label: "Sales", icon: "🧾" },
-
+  { key: "pos", label: "POS", icon: "🧾" },
+  { key: "sales", label: "Sales", icon: "🧾" },
   // { key: "inventory", label: "Inventory", icon: "📦" },
   // { key: "veg", label: "Veg", icon: "🥦" },
   { key: "credits", label: "Credits", icon: "💳" },
-
-  { key: "products", label: "Products", icon: "📦" },
-  //   { key: "suppliers", label: "Suppliers", icon: "-" },
-
-  // // { key: "fill", label: "Fill Missing", icon: "🧩" },
-  // { key: "online", label: "PHONE", icon: "🌐" },
-  // { key: "pricing", label: "Pricing", icon: "💰" },
+  // { key: "products", label: "Products", icon: "📦" },
+  // { key: "suppliers", label: "Suppliers", icon: "🚚" },
+  // { key: "fill", label: "Fill Missing", icon: "🧩" },
+  { key: "online", label: "Online", icon: "🌐" },
+  { key: "pricing", label: "Pricing", icon: "💰" },
   // { key: "upload", label: "Upload", icon: "⬆️" },
   { key: "orders", label: "Orders", icon: "📋" },
-  // { key: "pnl", label: "P&L", icon: "📈" },
+  { key: "pnl", label: "P&L", icon: "📈" },
   // { key: "expenses", label: "Expenses", icon: "💸" },
-      { key: "qtycost", label: "qtycost", icon: "🧾" },
-
+  { key: "qtycost", label: "QtyCost", icon: "🧮" },
+  // { key: "edit", label: "Edit Products", icon: "🖼️" },
 ];
 
 const styles: Record<string, React.CSSProperties> = {
@@ -225,6 +224,8 @@ export default function Page() {
           <PNL />
         ) : active === "expenses" ? (
           <Expenses />
+        ) : active === "edit" ? (
+          <EditProductsCarousel />
         ) : (
           <Inventory />
         )}

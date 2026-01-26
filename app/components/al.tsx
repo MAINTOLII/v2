@@ -9,9 +9,9 @@ type Product = {
   qty?: number | null;
   cost?: number | null;
   price?: number | null;
-  mrp?: number | null;
   tags?: string[] | null; // text[]
   subsubcategory_id?: number | null;
+  img?: string | null;
 };
 
 type FieldType = "text" | "number" | "bool" | "textarea";
@@ -29,7 +29,6 @@ const FIELDS: FieldDef[] = [
   { key: "cost", label: "Cost", type: "number", placeholder: "e.g. 0.95" },
   { key: "price", label: "Selling Price", type: "number", placeholder: "e.g. 1.25" },
   { key: "qty", label: "Stock Qty", type: "number", placeholder: "e.g. 24" },
-  { key: "mrp", label: "MRP", type: "number", placeholder: "e.g. 1.50" },
   { key: "subsubcategory_id", label: "SubSubCategory ID", type: "number", placeholder: "e.g. 123" },
   { key: "tags", label: "Tags (comma separated)", type: "textarea", placeholder: "fresh, vegetable, mogadishu" },
 ];
@@ -67,6 +66,29 @@ function toTagsArray(v: any): string[] {
   return arr.length ? arr : [""];
 }
 
+async function convertToWebp(file: File): Promise<Blob> {
+  const img = document.createElement("img");
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+
+  const reader = new FileReader();
+  const dataUrl: string = await new Promise((resolve) => {
+    reader.onload = () => resolve(reader.result as string);
+    reader.readAsDataURL(file);
+  });
+
+  img.src = dataUrl;
+  await new Promise((res) => (img.onload = res));
+
+  canvas.width = img.width;
+  canvas.height = img.height;
+  ctx?.drawImage(img, 0, 0);
+
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => resolve(blob as Blob), "image/webp", 0.9);
+  });
+}
+
 export default function ProductFillCards() {
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -79,7 +101,7 @@ export default function ProductFillCards() {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
 
   const TABLE = "products";
-  const SELECT_COLS = "id,slug,qty,cost,price,mrp,tags,subsubcategory_id";
+  const SELECT_COLS = "id,slug,qty,cost,price,tags,subsubcategory_id,img";
 
   useEffect(() => {
     let mounted = true;
@@ -113,9 +135,9 @@ export default function ProductFillCards() {
           qty: p.qty ?? null,
           cost: p.cost ?? null,
           price: p.price ?? null,
-          mrp: p.mrp ?? null,
           tags: p.tags ?? [""], // NOT NULL fallback
           subsubcategory_id: p.subsubcategory_id ?? null,
+          img: p.img ?? null,
         };
       }
       setForms(init);
@@ -170,7 +192,7 @@ export default function ProductFillCards() {
     patch.slug = slug === "" ? null : slug;
 
     // numbers
-    const numKeys: (keyof Product)[] = ["qty", "cost", "price", "mrp", "subsubcategory_id"];
+    const numKeys: (keyof Product)[] = ["qty", "cost", "price", "subsubcategory_id"];
     for (const k of numKeys) {
       const v = form[k];
       if (typeof v === "number") patch[k] = v;
@@ -265,6 +287,132 @@ export default function ProductFillCards() {
                 background: "white",
               }}
             >
+              {/* IMAGE */}
+{/* IMAGE */}
+<div style={{ marginBottom: 12 }}>
+  {p.img ? (
+    <img
+      src={encodeURI(p.img)}
+      alt={p.slug || "product"}
+      style={{
+        width: "100%",
+        height: 220,
+        objectFit: "contain",
+        borderRadius: 12,
+        border: "1px solid rgba(0,0,0,0.08)",
+        background: "white",
+      }}
+    />
+  ) : (
+    <div
+      style={{
+        width: "100%",
+        height: 220,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        borderRadius: 12,
+        border: "1px dashed rgba(0,0,0,0.2)",
+        fontSize: 13,
+        opacity: 0.7,
+        flexDirection: "column",
+        gap: 8,
+        background: "white",
+      }}
+    >
+      No image
+    </div>
+  )}
+
+  {/* Always show upload/replace */}
+  <div
+    style={{
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 10,
+      marginTop: 10,
+    }}
+  >
+    <label
+      style={{
+        padding: "8px 12px",
+        borderRadius: 12,
+        border: "1px solid rgba(0,0,0,0.15)",
+        cursor: "pointer",
+        fontWeight: 800,
+        fontSize: 13,
+        background: "#fff",
+      }}
+    >
+      {p.img ? "Replace image" : "Upload image"}
+      <input
+        type="file"
+        accept="image/*"
+        style={{ display: "none" }}
+onChange={async (e) => {
+  const inputEl = e.currentTarget as HTMLInputElement | null;
+  const file = inputEl?.files?.[0];
+  if (!file) return;
+
+  try {
+    const webpBlob = await convertToWebp(file);
+
+    const safeSlug = (p.slug || p.id)
+      .toLowerCase()
+      .replace(/&/g, " and ")
+      .replace(/(\d)\.(\d)/g, "$1$2")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+
+    const path = `products/${safeSlug || p.id}.webp`;
+
+    const { error: uploadError } = await supabase.storage
+      .from("product-images")
+      .upload(path, webpBlob, { upsert: true, contentType: "image/webp" });
+
+    if (uploadError) throw uploadError;
+
+    const publicUrl =
+      `https://swrgqktuatubssvwjkyx.supabase.co/storage/v1/object/public/product-images/${path}`;
+
+    const { error: updErr } = await supabase
+      .from("products")
+      .update({ img: publicUrl })
+      .eq("id", p.id);
+
+    if (updErr) throw updErr;
+
+    setProducts((prev) =>
+      prev.map((x) => (x.id === p.id ? { ...x, img: publicUrl } : x))
+    );
+  } catch (err: any) {
+    setError(err?.message || "Upload failed");
+  } finally {
+    // reset input so selecting same file again works
+    if (inputEl) inputEl.value = "";
+  }
+}}
+      />
+    </label>
+
+    {p.img ? (
+      <a
+        href={p.img}
+        target="_blank"
+        rel="noreferrer"
+        style={{ fontSize: 12, fontWeight: 800, opacity: 0.75 }}
+      >
+        Open
+      </a>
+    ) : (
+      <span style={{ fontSize: 12, opacity: 0.6 }}>
+        Uploads to product-images/products/
+      </span>
+    )}
+  </div>
+</div>
+
               <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontWeight: 800, fontSize: 14, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>

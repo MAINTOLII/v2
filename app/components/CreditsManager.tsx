@@ -147,7 +147,6 @@ function fmt(dt?: string | null) {
   if (!dt) return "";
   try {
     const d = new Date(dt);
-    // if it's midnight, show date only (avoids ugly 0:00)
     const hh = d.getHours();
     const mm = d.getMinutes();
     const ss = d.getSeconds();
@@ -165,6 +164,13 @@ function normalizePhone(input: string) {
 
 function isDigitsOnly(v: string) {
   return /^\d+$/.test(v);
+}
+
+function formatPhone(v: unknown) {
+  const s0 = String(v ?? "").trim();
+  if (!s0) return "";
+  // remove leading zeros (e.g. 0612... -> 612...)
+  return s0.replace(/^0+/, "");
 }
 
 export default function CreditsManager() {
@@ -189,6 +195,7 @@ export default function CreditsManager() {
   // One name draft per customer (for editing name inline)
   const [nameDraftByCustomerId, setNameDraftByCustomerId] = useState<Record<string, string>>({});
   const [editingCustomerId, setEditingCustomerId] = useState<string>("");
+
   async function saveCustomerName(customer: Customer, rawName: string) {
     setErr("");
     setOk("");
@@ -199,12 +206,7 @@ export default function CreditsManager() {
       return;
     }
 
-    const { data, error } = await supabase
-      .from("customers")
-      .update({ name })
-      .eq("id", customer.id)
-      .select("id,name,phone")
-      .single();
+    const { data, error } = await supabase.from("customers").update({ name }).eq("id", customer.id).select("id,name,phone").single();
 
     if (error) {
       setErr(error.message);
@@ -235,9 +237,20 @@ export default function CreditsManager() {
     return m;
   }, [customers]);
 
+  // ✅ FIX DUPLICATES: if a credit only has customer_phone, but it matches a known customer.phone,
+  // group it under that same cid:...
   function customerKey(cr: CreditRow) {
     if (cr.customer_id != null) return `cid:${cr.customer_id}`;
-    if (cr.customer_phone != null) return `phone:${cr.customer_phone}`;
+
+    if (cr.customer_phone != null) {
+      const phoneNum = Number(cr.customer_phone);
+      if (Number.isFinite(phoneNum)) {
+        const match = customers.find((c) => Number(c.phone) === phoneNum);
+        if (match) return `cid:${match.id}`;
+      }
+      return `phone:${cr.customer_phone}`;
+    }
+
     return `unknown:${cr.id}`;
   }
 
@@ -279,11 +292,7 @@ export default function CreditsManager() {
     const local = customers.find((c) => Number(c.phone) === phoneNum);
     if (local) return local;
 
-    const { data: found, error: findErr } = await supabase
-      .from("customers")
-      .select("id,name,phone")
-      .eq("phone", phoneNum)
-      .maybeSingle();
+    const { data: found, error: findErr } = await supabase.from("customers").select("id,name,phone").eq("phone", phoneNum).maybeSingle();
 
     if (!findErr && found) {
       const c = found as any as Customer;
@@ -291,11 +300,32 @@ export default function CreditsManager() {
       return c;
     }
 
-    const { data, error } = await supabase
-      .from("customers")
-      .insert({ phone: phoneNum })
-      .select("id,name,phone")
-      .single();
+    const { data, error } = await supabase.from("customers").insert({ phone: phoneNum }).select("id,name,phone").single();
+
+    if (error) throw error;
+
+    const created = data as any as Customer;
+    setCustomers((prev) => [created, ...prev]);
+    return created;
+  }
+
+  // ✅ allow name-only customer creation for manual credit entry
+  async function ensureCustomerByName(nameText: string) {
+    const name = String(nameText ?? "").trim();
+    if (name.length < 2) throw new Error("Enter at least 2 characters for the name");
+
+    const local = customers.find((c) => String(c.name ?? "").trim().toLowerCase() === name.toLowerCase());
+    if (local) return local;
+
+    const { data: found, error: findErr } = await supabase.from("customers").select("id,name,phone").ilike("name", name).maybeSingle();
+
+    if (!findErr && found) {
+      const c = found as any as Customer;
+      setCustomers((prev) => (prev.some((x) => x.id === c.id) ? prev : [c, ...prev]));
+      return c;
+    }
+
+    const { data, error } = await supabase.from("customers").insert({ name }).select("id,name,phone").single();
 
     if (error) throw error;
 
@@ -305,19 +335,12 @@ export default function CreditsManager() {
   }
 
   async function linkCustomerFromPhoneForGroup(phoneNum: number, groupKey: string) {
-    // Ensure there is a customers row for this phone
     const cust = await ensureCustomer(String(phoneNum));
 
-    // Update credits in DB: any credit rows with this phone and missing customer_id
-    const { error } = await supabase
-      .from("credits")
-      .update({ customer_id: cust.id })
-      .eq("customer_phone", phoneNum)
-      .is("customer_id", null);
+    const { error } = await supabase.from("credits").update({ customer_id: cust.id }).eq("customer_phone", phoneNum).is("customer_id", null);
 
     if (error) throw error;
 
-    // Update local state so UI instantly has customer_id
     setCredits((prev) =>
       prev.map((cr) => {
         if (Number(cr.customer_phone ?? 0) === Number(phoneNum) && (cr.customer_id == null || cr.customer_id === 0)) {
@@ -327,12 +350,7 @@ export default function CreditsManager() {
       })
     );
 
-    // Expand this group so name edit UI is visible
-    if (expandedKey !== groupKey) {
-      // We can't reliably access group orderIds/creditIds here; caller will expand.
-      setExpandedKey(groupKey);
-    }
-
+    if (expandedKey !== groupKey) setExpandedKey(groupKey);
     return cust;
   }
 
@@ -343,10 +361,7 @@ export default function CreditsManager() {
     if (missing.length === 0) return;
 
     setLoadingItems(true);
-    const { data, error } = await supabase
-      .from("order_items")
-      .select("id,order_id,product_slug,qty,unit_price,line_total,is_weight")
-      .in("order_id", missing);
+    const { data, error } = await supabase.from("order_items").select("id,order_id,product_slug,qty,unit_price,line_total,is_weight").in("order_id", missing);
 
     if (!error) {
       const rows = (data ?? []) as any as OrderItem[];
@@ -364,19 +379,13 @@ export default function CreditsManager() {
     const uniq = Array.from(new Set(creditIds)).filter(Boolean);
     if (uniq.length === 0) return;
 
-    // Batch to avoid URL length limits
     const batchSize = 500;
     const next: Record<string, CreditPayment[]> = {};
     for (const cid of uniq) next[cid] = [];
 
     for (let i = 0; i < uniq.length; i += batchSize) {
       const batch = uniq.slice(i, i + batchSize);
-      const { data, error } = await supabase
-        .from("credit_payments")
-        .select("id,credit_id,amount,created_at")
-        .in("credit_id", batch)
-        .order("created_at", { ascending: true });
-
+      const { data, error } = await supabase.from("credit_payments").select("id,credit_id,amount,created_at").in("credit_id", batch).order("created_at", { ascending: true });
       if (error) continue;
 
       const rows = (data ?? []) as any as CreditPayment[];
@@ -393,11 +402,7 @@ export default function CreditsManager() {
     const missing = creditIds.filter((id) => !paymentsByCreditId[id]);
     if (missing.length === 0) return;
 
-    const { data, error } = await supabase
-      .from("credit_payments")
-      .select("id,credit_id,amount,created_at")
-      .in("credit_id", missing)
-      .order("created_at", { ascending: true });
+    const { data, error } = await supabase.from("credit_payments").select("id,credit_id,amount,created_at").in("credit_id", missing).order("created_at", { ascending: true });
 
     if (error) return;
 
@@ -434,9 +439,7 @@ export default function CreditsManager() {
     const creditRows = (cRes.data ?? []) as any as CreditRow[];
     setCredits(creditRows);
 
-    // preload ALL payments so Paid/Open tabs correct immediately
     await fetchAllCreditPayments(creditRows.map((x) => x.id));
-
     setLoading(false);
   }
 
@@ -445,7 +448,6 @@ export default function CreditsManager() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Filter credits by search
   const filteredCredits = useMemo(() => {
     const query = q.trim().toLowerCase();
     return credits.filter((cr) => {
@@ -459,17 +461,15 @@ export default function CreditsManager() {
 
   // Group by customer
   const groups = useMemo(() => {
-    const m: Record<
-      string,
-      { key: string; title: string; credits: CreditRow[]; creditIds: string[]; orderIds: string[] }
-    > = {};
+    const m: Record<string, { key: string; title: string; credits: CreditRow[]; creditIds: string[]; orderIds: string[] }> = {};
 
     for (const cr of filteredCredits) {
       const key = customerKey(cr);
       const cust = cr.customer_id != null ? byCustomerId[String(cr.customer_id)] : null;
-      const phone = cr.customer_phone ?? cust?.phone ?? null;
+      const phoneRaw = cr.customer_phone ?? cust?.phone ?? null;
       const meta = nameMeta(cust);
-      const title = `${meta.display} • ${phone ?? ""}`.trim();
+      const phone = formatPhone(phoneRaw);
+      const title = `${meta.display} • ${phone}`.trim();
 
       if (!m[key]) m[key] = { key, title, credits: [], creditIds: [], orderIds: [] };
 
@@ -484,7 +484,6 @@ export default function CreditsManager() {
       g.creditIds = Array.from(new Set(g.creditIds));
       g.orderIds = Array.from(new Set(g.orderIds));
 
-      // latest first
       g.credits.sort((a, b) => {
         const at = a.created_at ? new Date(a.created_at).getTime() : 0;
         const bt = b.created_at ? new Date(b.created_at).getTime() : 0;
@@ -492,7 +491,6 @@ export default function CreditsManager() {
       });
     }
 
-    // sort customers by latest credit
     arr.sort((a, b) => {
       const at = a.credits[0]?.created_at ? new Date(a.credits[0].created_at).getTime() : 0;
       const bt = b.credits[0]?.created_at ? new Date(b.credits[0].created_at).getTime() : 0;
@@ -500,9 +498,8 @@ export default function CreditsManager() {
     });
 
     return arr;
-  }, [filteredCredits, byCustomerId]);
+  }, [filteredCredits, byCustomerId, customers]);
 
-  // Totals per customer (ledger style)
   const customerTotalsByKey = useMemo(() => {
     const out: Record<string, { taken: number; paid: number; balance: number }> = {};
 
@@ -548,7 +545,6 @@ export default function CreditsManager() {
     await Promise.all([fetchOrderItems(orderIds), fetchCreditPayments(creditIds)]);
   }
 
-  // Ledger: payment inserts ONLY a payment row, does NOT modify credits/products.
   async function applyCustomerPayment(groupKey: string, group: (typeof groups)[number]) {
     setErr("");
     setOk("");
@@ -561,7 +557,6 @@ export default function CreditsManager() {
       return;
     }
 
-    // Ensure we have payments for this customer to compute balance accurately
     await fetchCreditPayments(group.creditIds);
 
     const totals = customerTotalsByKey[groupKey];
@@ -576,7 +571,6 @@ export default function CreditsManager() {
       return;
     }
 
-    // Link payment to oldest credit just for grouping
     const oldest = group.credits
       .slice()
       .sort((a, b) => {
@@ -609,7 +603,6 @@ export default function CreditsManager() {
 
     const row = inserted as any as CreditPayment;
 
-    // ✅ optimistic append so totals update instantly
     setPaymentsByCreditId((prev) => {
       const next = { ...prev };
       const arr = (next[oldest.id] ?? []).slice();
@@ -637,29 +630,26 @@ export default function CreditsManager() {
     try {
       if (addSelected) {
         cust = addSelected;
-        if (cust.phone == null) {
-          setErr("Selected customer has no phone.");
-          return;
-        }
       } else {
         const raw = addQuery.trim();
-        const phoneOrText = normalizePhone(raw);
-        if (!phoneOrText) {
+        if (!raw) {
           setErr("Enter customer name or phone.");
           return;
         }
-        if (!isDigitsOnly(phoneOrText)) {
-          setErr("Select a customer from dropdown, or type a phone number to create new.");
-          return;
+
+        const phoneCandidate = normalizePhone(raw);
+        if (isDigitsOnly(phoneCandidate)) {
+          cust = await ensureCustomer(phoneCandidate);
+        } else {
+          cust = await ensureCustomerByName(raw);
         }
-        cust = await ensureCustomer(phoneOrText);
       }
     } catch (e: any) {
       setErr(e?.message ?? "Invalid customer");
       return;
     }
 
-    const phoneNum = Number(cust.phone);
+    const phoneNum = cust.phone == null ? null : Number(cust.phone);
 
     const { data: inserted, error } = await supabase
       .from("credits")
@@ -680,7 +670,6 @@ export default function CreditsManager() {
 
     const row = inserted as any as CreditRow;
 
-    // ✅ optimistic prepend
     setCredits((prev) => [row, ...prev]);
     setPaymentsByCreditId((prev) => ({ ...prev, [row.id]: prev[row.id] ?? [] }));
 
@@ -755,12 +744,7 @@ export default function CreditsManager() {
             <option value="all">All</option>
           </select>
 
-          <input
-            style={{ ...s.input, flex: 1, minWidth: 240 }}
-            placeholder="Search phone or name…"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-          />
+          <input style={{ ...s.input, flex: 1, minWidth: 240 }} placeholder="Search phone or name…" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
       </div>
 
@@ -776,7 +760,7 @@ export default function CreditsManager() {
               <input
                 style={{ ...s.input, width: "100%" }}
                 placeholder="Customer name or phone"
-                value={addSelected ? `${addSelected.name ?? "Customer"} • ${addSelected.phone ?? ""}` : addQuery}
+                value={addSelected ? `${addSelected.name ?? "Customer"} • ${formatPhone(addSelected.phone ?? "")}` : addQuery}
                 onChange={(e) => {
                   setAddSelected(null);
                   setAddQuery(e.target.value);
@@ -823,7 +807,7 @@ export default function CreditsManager() {
                       }}
                     >
                       <span style={{ fontWeight: 700 }}>{c.name ?? "Customer"}</span>
-                      <span style={s.muted}>{c.phone ?? ""}</span>
+                      <span style={s.muted}>{formatPhone(c.phone ?? "")}</span>
                     </button>
                   ))}
                 </div>
@@ -831,12 +815,7 @@ export default function CreditsManager() {
             </div>
 
             <div style={s.row}>
-              <input
-                style={{ ...s.input, width: 160 }}
-                placeholder="Amount"
-                value={manualAmount}
-                onChange={(e) => setManualAmount(e.target.value)}
-              />
+              <input style={{ ...s.input, width: 160 }} placeholder="Amount" value={manualAmount} onChange={(e) => setManualAmount(e.target.value)} />
 
               <button type="button" style={s.btnGhost} onClick={addManualCredit}>
                 Add
@@ -846,8 +825,7 @@ export default function CreditsManager() {
                 <button
                   type="button"
                   style={s.btnGhost}
-                  onClick={() => {
-                    setAddSelected(null);
+                  onClick={() => {                    setAddSelected(null);
                     setAddQuery("");
                     setAddOpen(false);
                   }}
@@ -856,354 +834,268 @@ export default function CreditsManager() {
                 </button>
               ) : null}
             </div>
-
-            <div style={s.muted}>Tip: name (2+ letters) or phone (3+ digits)</div>
           </div>
         </div>
       </div>
 
       <div style={{ height: 10 }} />
 
-      <div style={s.card}>
-        {loading ? (
-          <div style={{ opacity: 0.75 }}>Loading…</div>
-        ) : visibleGroups.length === 0 ? (
-          <div style={{ opacity: 0.75 }}>No credits found.</div>
-        ) : (
-          <div style={{ display: "grid", gap: 10 }}>
-            {visibleGroups.map((g) => {
-              const totals = customerTotalsByKey[g.key] ?? { taken: 0, paid: 0, balance: 0 };
-              const isSettled = totals.balance <= 0.0001;
+      {/* Groups */}
+      {loading ? (
+        <div style={s.card}>Loading…</div>
+      ) : visibleGroups.length === 0 ? (
+        <div style={s.card}>No results.</div>
+      ) : (
+        <div style={{ display: "grid", gap: 10 }}>
+          {visibleGroups.map((g) => {
+            const totals = customerTotalsByKey[g.key] ?? { taken: 0, paid: 0, balance: 0 };
+            const isExpanded = expandedKey === g.key;
 
-              return (
-                <div key={g.key}>
-                  <div
-                    role="button"
-                    tabIndex={0}
-                    style={s.cardBtn}
-                    onClick={() => toggleExpand(g.key, g.orderIds, g.creditIds)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        toggleExpand(g.key, g.orderIds, g.creditIds);
-                      }
-                    }}
-                  >
-                    <div style={s.rowBetween}>
-                      <div style={{ display: "grid", gap: 2 }}>
-                        {(() => {
-                          const anyCr = g.credits[0];
-                          const cust = anyCr?.customer_id != null ? byCustomerId[String(anyCr.customer_id)] : null;
-                          const phone = anyCr?.customer_phone ?? cust?.phone ?? null;
+            // determine customer (if grouped under cid:...)
+            let cust: Customer | null = null;
+            if (g.key.startsWith("cid:")) {
+              const cid = g.key.replace("cid:", "");
+              cust = byCustomerId[cid] ?? null;
+            }
 
-                          if (!cust) {
-                            const phoneNum = Number(phone ?? 0);
-                            const canLink = Number.isFinite(phoneNum) && phoneNum > 0;
+            // for phone-only groups: offer "link" to customer_id
+            const isPhoneGroup = g.key.startsWith("phone:");
+            const phoneOnlyVal = isPhoneGroup ? Number(g.key.replace("phone:", "")) : NaN;
+            const canLinkPhone = isPhoneGroup && Number.isFinite(phoneOnlyVal);
 
-                            return (
-                              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                                <span style={{ fontWeight: 800 }}>Customer</span>
-                                <button
-                                  type="button"
-                                  disabled={!canLink}
-                                  onClick={async (e) => {
-                                    e.stopPropagation();
-                                    if (!canLink) return;
-                                    try {
-                                      const linked = await linkCustomerFromPhoneForGroup(phoneNum, g.key);
-                                      const cidKey = String(linked.id);
-                                      setEditingCustomerId(cidKey);
-                                      setNameDraftByCustomerId((p) => ({ ...p, [cidKey]: "" }));
-                                      if (expandedKey !== g.key) {
-                                        await toggleExpand(g.key, g.orderIds, g.creditIds);
-                                      }
-                                    } catch (errAny: any) {
-                                      setErr(errAny?.message ?? "Failed to link customer");
-                                    }
-                                  }}
-                                  style={{
-                                    height: 28,
-                                    width: 28,
-                                    borderRadius: 8,
-                                    border: "1px solid #e5e7eb",
-                                    background: "#fff",
-                                    cursor: canLink ? "pointer" : "not-allowed",
-                                    lineHeight: "26px",
-                                    textAlign: "center",
-                                    padding: 0,
-                                    opacity: canLink ? 1 : 0.5,
-                                  }}
-                                  title={canLink ? "Add name" : "No phone"}
-                                >
-                                  ✏️
-                                </button>
-                                <span style={s.muted}>• {phone ?? ""}</span>
-                              </div>
-                            );
-                          }
+            const nameMetaObj = nameMeta(cust);
+            const displayPhone = (() => {
+              const anyCr = g.credits[0];
+              const phoneRaw = anyCr?.customer_phone ?? cust?.phone ?? null;
+              return formatPhone(phoneRaw);
+            })();
 
-                          const meta = nameMeta(cust);
+            const ledger = isExpanded ? buildLedgerLinesForGroup(g) : [];
 
-                          return (
-                            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                              <span style={{ fontWeight: 800 }}>{meta.display}</span>
-                              <button
-                                type="button"
-                                onClick={async (e) => {
-                                  e.stopPropagation();
-                                  const cidKey = String(cust.id);
-                                  setEditingCustomerId(cidKey);
-                                  setNameDraftByCustomerId((p) => ({ ...p, [cidKey]: meta.isPlaceholder ? "" : meta.nm }));
-                                  if (expandedKey !== g.key) {
-                                    await toggleExpand(g.key, g.orderIds, g.creditIds);
-                                  }
-                                }}
-                                style={{
-                                  height: 28,
-                                  width: 28,
-                                  borderRadius: 8,
-                                  border: "1px solid #e5e7eb",
-                                  background: "#fff",
-                                  cursor: "pointer",
-                                  lineHeight: "26px",
-                                  textAlign: "center",
-                                  padding: 0,
-                                }}
-                                title={meta.isPlaceholder ? "Add name" : "Edit name"}
-                              >
-                                ✏️
-                              </button>
-                              <span style={s.muted}>• {phone ?? ""}</span>
-                            </div>
-                          );
-                        })()}
-                        <div style={s.muted}>
-                          taken {money(totals.taken)} • paid {money(totals.paid)}
-                        </div>
+            return (
+              <div key={g.key} style={{ display: "grid", gap: 8 }}>
+                <button
+                  type="button"
+                  style={s.cardBtn}
+                  onClick={() => toggleExpand(g.key, g.orderIds, g.creditIds)}
+                >
+                  <div style={s.rowBetween}>
+                    <div style={{ display: "grid", gap: 4 }}>
+                      <div style={{ fontWeight: 800, fontSize: 14, color: "#111" }}>
+                        {cust ? nameMetaObj.display : nameMetaObj.display}
+                        <span style={s.muted}> • {displayPhone}</span>
                       </div>
 
-                      <div
-                        style={{
-                          display: "flex",
-                          gap: 10,
-                          alignItems: "baseline",
-                          flexWrap: "wrap",
-                          justifyContent: "flex-end",
-                        }}
-                      >
-                        <span style={isSettled ? s.amountGreen : s.amountRed}>{money(Math.max(totals.balance, 0))}</span>
-                        <span style={{ ...s.badge, borderColor: isSettled ? "#c7f0d1" : "#f1c4c4" }}>
-                          {isSettled ? "PAID" : "OPEN"}
-                        </span>
+                      <div style={s.small}>
+                        Taken: <span style={s.amountRed}>{money(totals.taken)}</span>{" "}
+                        <span style={{ margin: "0 6px" }}>•</span>
+                        Paid: <span style={s.amountGreen}>{money(totals.paid)}</span>
                       </div>
                     </div>
-                  </div>
 
-                  {expandedKey === g.key ? (
-                    <div style={{ ...s.card, marginTop: 8 }}>
-                      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
-                        {(() => {
-                          const anyCr = g.credits[0];
-                          const cust = anyCr?.customer_id != null ? byCustomerId[String(anyCr.customer_id)] : null;
-                          if (!cust) {
-                            const phoneNum = Number(anyCr?.customer_phone ?? 0);
-                            const canLink = Number.isFinite(phoneNum) && phoneNum > 0;
-
-                            return (
-                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                <span style={{ fontWeight: 800 }}>Customer</span>
-                                <button
-                                  type="button"
-                                  disabled={!canLink}
-                                  style={{
-                                    height: 28,
-                                    width: 28,
-                                    borderRadius: 8,
-                                    border: "1px solid #e5e7eb",
-                                    background: "#fff",
-                                    cursor: canLink ? "pointer" : "not-allowed",
-                                    lineHeight: "26px",
-                                    textAlign: "center",
-                                    padding: 0,
-                                    opacity: canLink ? 1 : 0.5,
-                                  }}
-                                  title={canLink ? "Add name" : "No phone"}
-                                  onClick={async () => {
-                                    if (!canLink) return;
-                                    try {
-                                      const linked = await linkCustomerFromPhoneForGroup(phoneNum, g.key);
-                                      const cidKey = String(linked.id);
-                                      setEditingCustomerId(cidKey);
-                                      setNameDraftByCustomerId((p) => ({ ...p, [cidKey]: "" }));
-                                    } catch (errAny: any) {
-                                      setErr(errAny?.message ?? "Failed to link customer");
-                                    }
-                                  }}
-                                >
-                                  ✏️
-                                </button>
-                              </div>
-                            );
-                          }
-
-                          const cidKey = String(cust.id);
-                          const meta = nameMeta(cust);
-                          const nm = meta.nm;
-                          const missingName = meta.isPlaceholder;
-
-                          const isEditing = editingCustomerId === cidKey;
-                          const draft = nameDraftByCustomerId[cidKey] ?? "";
-
-                          if (!isEditing) {
-                            return (
-                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                <span style={{ fontWeight: 800 }}>{meta.display}</span>
-                                <button
-                                  type="button"
-                                  style={{
-                                    height: 28,
-                                    width: 28,
-                                    borderRadius: 8,
-                                    border: "1px solid #e5e7eb",
-                                    background: "#fff",
-                                    cursor: "pointer",
-                                    lineHeight: "26px",
-                                    textAlign: "center",
-                                    padding: 0,
-                                  }}
-                                  title={missingName ? "Add name" : "Edit name"}
-                                  onClick={() => {
-                                    setEditingCustomerId(cidKey);
-                                    setNameDraftByCustomerId((p) => ({ ...p, [cidKey]: missingName ? "" : meta.nm }));
-                                  }}
-                                >
-                                  ✏️
-                                </button>
-                              </div>
-                            );
-                          }
-
-                          return (
-                            <>
-                              <input
-                                style={{ ...s.inputSm, width: 180 }}
-                                placeholder={missingName ? "Add name" : "Edit name"}
-                                value={draft}
-                                onChange={(e) => setNameDraftByCustomerId((p) => ({ ...p, [cidKey]: e.target.value }))}
-                              />
-                              <button
-                                style={s.btnSm}
-                                type="button"
-                                onClick={async () => {
-                                  await saveCustomerName(cust, draft);
-                                  setEditingCustomerId("");
-                                }}
-                                title="Save customer name"
-                              >
-                                Save
-                              </button>
-                              <button
-                                type="button"
-                                style={{
-                                  ...s.btnSm,
-                                  background: "#fff",
-                                  color: "#111",
-                                  borderColor: "#e5e7eb",
-                                }}
-                                onClick={() => {
-                                  setEditingCustomerId("");
-                                  setNameDraftByCustomerId((p) => {
-                                    const next = { ...p };
-                                    delete next[cidKey];
-                                    return next;
-                                  });
-                                }}
-                                title="Cancel"
-                              >
-                                Cancel
-                              </button>
-                            </>
-                          );
-                        })()}
-                        <input
-                          style={{ ...s.inputSm, width: 160 }}
-                          placeholder="Payment"
-                          value={payCustomerByKey[g.key] ?? ""}
-                          onChange={(e) => setPayCustomerByKey((p) => ({ ...p, [g.key]: e.target.value }))}
-                        />
-                        <button style={s.btnSm} type="button" onClick={() => applyCustomerPayment(g.key, g)}>
-                          Save payment
-                        </button>
-                        <span style={s.badge}>Remaining {money(Math.max(totals.balance, 0))}</span>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontWeight: 900, fontSize: 14, color: totals.balance > 0 ? "#b42318" : "#067647" }}>
+                        {money(totals.balance)}
                       </div>
+                      <div style={s.muted}>{isExpanded ? "Hide" : "Open"}</div>
+                    </div>
+                  </div>
+                </button>
 
-                      {loadingItems ? <div style={{ opacity: 0.75 }}>Loading…</div> : null}
-
-                      <div style={s.ledgerBox}>
-                        <div style={s.ledgerHead}>
-                          <div>Date</div>
-                          <div>Details</div>
-                          <div style={{ textAlign: "right" }}>Amount</div>
+                {isExpanded ? (
+                  <div style={{ ...s.card, display: "grid", gap: 10 }}>
+                    {/* Header actions */}
+                    <div style={s.rowBetween}>
+                      <div style={{ display: "grid", gap: 6 }}>
+                        <div style={{ fontWeight: 900, fontSize: 14 }}>
+                          {cust ? nameMetaObj.display : "Customer"}
+                          <span style={s.muted}> • {displayPhone}</span>
                         </div>
 
-                        {buildLedgerLinesForGroup(g).map((line, idx) => {
-                          const isFirst = idx === 0;
-                          const rowStyle = {
-                            ...s.ledgerRow,
-                            borderTop: isFirst ? "none" : (s.ledgerRow.borderTop as any),
-                          } as React.CSSProperties;
+                        {/* Name edit */}
+                        {cust ? (
+                          <div style={s.row}>
+                            {editingCustomerId === String(cust.id) ? (
+                              <>
+                                <input
+                                  style={{ ...s.inputSm, width: 220 }}
+                                  value={nameDraftByCustomerId[String(cust.id)] ?? (cust.name ?? "")}
+                                  onChange={(e) =>
+                                    setNameDraftByCustomerId((prev) => ({
+                                      ...prev,
+                                      [String(cust!.id)]: e.target.value,
+                                    }))
+                                  }
+                                  placeholder="Customer name"
+                                />
+                                <button
+                                  type="button"
+                                  style={s.btnSm}
+                                  onClick={() =>
+                                    saveCustomerName(cust!, nameDraftByCustomerId[String(cust!.id)] ?? (cust!.name ?? ""))
+                                  }
+                                >
+                                  Save
+                                </button>
+                                <button
+                                  type="button"
+                                  style={s.btnGhost}
+                                  onClick={() => {
+                                    setEditingCustomerId("");
+                                    setNameDraftByCustomerId((prev) => {
+                                      const next = { ...prev };
+                                      delete next[String(cust!.id)];
+                                      return next;
+                                    });
+                                  }}
+                                >
+                                  Cancel
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  style={s.btnGhost}
+                                  onClick={() => {
+                                    setEditingCustomerId(String(cust!.id));
+                                    setNameDraftByCustomerId((prev) => ({
+                                      ...prev,
+                                      [String(cust!.id)]: cust!.name ?? "",
+                                    }));
+                                  }}
+                                >
+                                  Edit name
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        ) : null}
 
+                        {/* Link phone-only credits to a real customer_id */}
+                        {canLinkPhone ? (
+                          <div style={s.row}>
+                            <button
+                              type="button"
+                              style={s.btnGhost}
+                              onClick={async () => {
+                                try {
+                                  setErr("");
+                                  setOk("");
+                                  await linkCustomerFromPhoneForGroup(phoneOnlyVal, g.key);
+                                  setOk("Linked phone credits to a customer.");
+                                } catch (e: any) {
+                                  setErr(e?.message ?? "Failed to link phone credits.");
+                                }
+                              }}
+                            >
+                              Link phone → customer
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+
+                      <div style={{ textAlign: "right" }}>
+                        <div style={s.small}>Balance</div>
+                        <div style={{ fontWeight: 900, fontSize: 18, color: totals.balance > 0 ? "#b42318" : "#067647" }}>
+                          {money(totals.balance)}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Payment box */}
+                    <div style={{ ...s.card, background: "#fbfdff", borderColor: "#dbeafe" }}>
+                      <div style={{ fontWeight: 800, marginBottom: 8 }}>Add payment</div>
+                      <div style={s.row}>
+                        <input
+                          style={{ ...s.inputSm, width: 160 }}
+                          placeholder="Amount paid"
+                          value={payCustomerByKey[g.key] ?? ""}
+                          onChange={(e) => setPayCustomerByKey((prev) => ({ ...prev, [g.key]: e.target.value }))}
+                        />
+                        <button
+                          type="button"
+                          style={s.btnSm}
+                          onClick={() => applyCustomerPayment(g.key, g)}
+                        >
+                          Save payment
+                        </button>
+
+                        {loadingItems ? <span style={s.muted}>Loading…</span> : null}
+                      </div>
+                    </div>
+
+                    {/* Ledger */}
+                    <div style={s.ledgerBox}>
+                      <div style={s.ledgerHead}>
+                        <div>Date</div>
+                        <div>Details</div>
+                        <div style={{ textAlign: "right" }}>Amount</div>
+                      </div>
+
+                      {ledger.length === 0 ? (
+                        <div style={{ padding: 12, fontSize: 13, opacity: 0.7 }}>No ledger lines.</div>
+                      ) : (
+                        ledger.map((line) => {
                           if (line.kind === "payment") {
                             return (
-                              <div key={`pay-${line.id}`} style={rowStyle}>
-                                <div style={s.small}>{fmt(line.created_at)}</div>
-                                <div style={{ fontWeight: 700, color: "#067647" }}>Payment</div>
+                              <div key={`p_${line.id}`} style={s.ledgerRow}>
+                                <div style={s.muted}>{fmt(line.created_at)}</div>
+                                <div>
+                                  <div style={{ fontWeight: 800, color: "#067647" }}>Payment received</div>
+                                </div>
                                 <div style={{ textAlign: "right", ...s.amountGreen }}>{money(line.amount)}</div>
                               </div>
                             );
                           }
 
+                          // debit
+                          const credit = g.credits.find((c) => c.id === line.id);
+                          const note = credit?.status && credit.status !== "open" ? credit.status : "";
+
                           const items = line.order_id ? itemsByOrderId[line.order_id] ?? [] : [];
 
                           return (
-                            <div key={`debit-${line.id}`} style={rowStyle}>
-                              <div style={s.small}>{fmt(line.created_at)}</div>
-                              <div style={s.itemsWrap}>
-                                {line.order_id ? (
-                                  items.length > 0 ? (
-                                    items.map((it) => (
+                            <div key={`d_${line.id}`} style={s.ledgerRow}>
+                              <div style={s.muted}>{fmt(line.created_at)}</div>
+
+                              <div style={{ display: "grid", gap: 6 }}>
+                                <div style={{ fontWeight: 800, color: "#b42318" }}>
+                                  {note ? note : line.order_id ? `Order: ${line.order_id}` : "Manual credit"}
+                                </div>
+
+                                {line.order_id && items.length > 0 ? (
+                                  <div style={s.itemsWrap}>
+                                    {items.slice(0, 8).map((it) => (
                                       <div key={it.id} style={s.itemLine}>
-                                        <span style={{ fontWeight: 700, color: "#b42318" }}>{it.product_slug}</span>
-                                        <span style={s.small}>
-                                          {it.qty}
-                                          {it.is_weight ? " kg" : ""}
+                                        <span style={{ opacity: 0.9 }}>
+                                          {it.product_slug} × {it.qty}
                                         </span>
+                                        <span style={{ opacity: 0.75 }}>{money(it.line_total)}</span>
                                       </div>
-                                    ))
-                                  ) : (
-                                    <div style={s.muted}>Order (items loading…)</div>
-                                  )
-                                ) : (
-                                  <div style={{ fontWeight: 700, color: "#b42318" }}>Manual credit</div>
-                                )}
+                                    ))}
+                                    {items.length > 8 ? (
+                                      <div style={s.muted}>+ {items.length - 8} more…</div>
+                                    ) : null}
+                                  </div>
+                                ) : null}
                               </div>
+
                               <div style={{ textAlign: "right", ...s.amountRed }}>{money(line.amount)}</div>
                             </div>
                           );
-                        })}
-
-                        {buildLedgerLinesForGroup(g).length === 0 ? (
-                          <div style={{ padding: 12, opacity: 0.75 }}>No ledger entries.</div>
-                        ) : null}
-                      </div>
+                        })
+                      )}
                     </div>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div style={{ height: 30 }} />
     </main>
   );
 }
