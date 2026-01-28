@@ -1,5 +1,3 @@
-
-
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -18,18 +16,7 @@ type Expense = {
   created_by: string | null;
 };
 
-const CURRENCIES = ["USD", "SOS"] as const;
-const CATEGORIES = [
-  "Rent",
-  "Utilities",
-  "Salaries",
-  "Stock / Inventory",
-  "Transport",
-  "Marketing",
-  "Repairs",
-  "Packaging",
-  "Other",
-] as const;
+const PAYMENT_METHODS = ["EVC", "EDAHAB", "CASH"] as const;
 
 function todayISO() {
   const d = new Date();
@@ -51,24 +38,17 @@ export default function Expenses() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Filters
-  const [fromDate, setFromDate] = useState<string>(() => {
-    // default: first day of month
-    const d = new Date();
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, "0");
-    return `${yyyy}-${mm}-01`;
-  });
+  const [fromDate, setFromDate] = useState<string>(() => todayISO());
   const [toDate, setToDate] = useState<string>(() => todayISO());
-  const [currencyFilter, setCurrencyFilter] = useState<string>("USD");
+  const [paymentFilter, setPaymentFilter] = useState<string>("all");
+
+  // Add expense panel open state
+  const [addOpen, setAddOpen] = useState(false);
 
   // Form
-  const [expense_date, setExpenseDate] = useState<string>(() => todayISO());
   const [amount, setAmount] = useState<string>("");
-  const [currency, setCurrency] = useState<string>("USD");
-  const [category, setCategory] = useState<string>("Other");
-  const [payment_method, setPaymentMethod] = useState<string>("Cash");
-  const [vendor, setVendor] = useState<string>("");
   const [note, setNote] = useState<string>("");
+  const [paymentMethod, setPaymentMethod] = useState<string>("CASH");
 
   async function load() {
     setLoading(true);
@@ -78,9 +58,13 @@ export default function Expenses() {
       .from("expenses")
       .select("id,created_at,expense_date,amount,currency,category,payment_method,vendor,note,created_by")
       .gte("expense_date", fromDate)
-      .lte("expense_date", toDate)
-      .eq("currency", currencyFilter)
-      .order("expense_date", { ascending: false })
+      .lte("expense_date", toDate);
+
+    if (paymentFilter !== "all") {
+      q.eq("payment_method", paymentFilter);
+    }
+
+    q.order("expense_date", { ascending: false })
       .order("created_at", { ascending: false });
 
     const { data, error } = await q;
@@ -99,7 +83,7 @@ export default function Expenses() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fromDate, toDate, currencyFilter]);
+  }, [fromDate, toDate, paymentFilter]);
 
   const totals = useMemo(() => {
     const total = rows.reduce((sum, r) => sum + Number(r.amount ?? 0), 0);
@@ -122,12 +106,12 @@ export default function Expenses() {
     setSaving(true);
 
     const payload = {
-      expense_date,
+      expense_date: todayISO(),
       amount: amt,
-      currency,
-      category: category || null,
-      payment_method: payment_method || null,
-      vendor: vendor.trim().length ? vendor.trim() : null,
+      currency: "USD",
+      category: null,
+      payment_method: paymentMethod,
+      vendor: null,
       note: note.trim().length ? note.trim() : null,
     };
 
@@ -139,10 +123,10 @@ export default function Expenses() {
       return;
     }
 
-    // reset small fields but keep date/currency for speed
+    // reset amount, note, and payment method
     setAmount("");
-    setVendor("");
     setNote("");
+    setPaymentMethod("CASH");
     setSaving(false);
 
     // reload to include server timestamp + created_by
@@ -174,102 +158,82 @@ export default function Expenses() {
 
       {/* Add expense */}
       <div className="mt-4 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-        <div className="mb-3 flex items-center justify-between gap-3">
+        <button
+          type="button"
+          onClick={() => setAddOpen((v) => !v)}
+          className="mb-3 flex w-full items-center justify-between gap-3"
+        >
           <div className="font-extrabold">Add expense</div>
-          {saving ? <div className="text-xs text-gray-500">Saving…</div> : null}
-        </div>
-
-        <form onSubmit={addExpense} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <label className="text-sm">
-            <div className="mb-1 font-semibold">Date</div>
-            <input
-              type="date"
-              value={expense_date}
-              onChange={(e) => setExpenseDate(e.target.value)}
-              className="w-full rounded-xl border border-gray-200 px-3 py-2"
-              required
-            />
-          </label>
-
-          <label className="text-sm">
-            <div className="mb-1 font-semibold">Amount</div>
-            <input
-              inputMode="decimal"
-              placeholder="e.g. 12.50"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              className="w-full rounded-xl border border-gray-200 px-3 py-2"
-              required
-            />
-          </label>
-
-          <label className="text-sm">
-            <div className="mb-1 font-semibold">Currency</div>
-            <select value={currency} onChange={(e) => setCurrency(e.target.value)} className="w-full rounded-xl border border-gray-200 px-3 py-2">
-              {CURRENCIES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="text-sm">
-            <div className="mb-1 font-semibold">Category</div>
-            <select value={category} onChange={(e) => setCategory(e.target.value)} className="w-full rounded-xl border border-gray-200 px-3 py-2">
-              {CATEGORIES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="text-sm">
-            <div className="mb-1 font-semibold">Payment method</div>
-            <input
-              placeholder="Cash / EVC / Bank / Card"
-              value={payment_method}
-              onChange={(e) => setPaymentMethod(e.target.value)}
-              className="w-full rounded-xl border border-gray-200 px-3 py-2"
-            />
-          </label>
-
-          <label className="text-sm">
-            <div className="mb-1 font-semibold">Vendor (optional)</div>
-            <input value={vendor} onChange={(e) => setVendor(e.target.value)} className="w-full rounded-xl border border-gray-200 px-3 py-2" placeholder="Who did you pay?" />
-          </label>
-
-          <label className="text-sm sm:col-span-2">
-            <div className="mb-1 font-semibold">Note (optional)</div>
-            <input value={note} onChange={(e) => setNote(e.target.value)} className="w-full rounded-xl border border-gray-200 px-3 py-2" placeholder="Reason / details" />
-          </label>
-
-          <div className="sm:col-span-2 flex gap-2">
-            <button
-              type="submit"
-              disabled={saving}
-              className="inline-flex items-center justify-center rounded-xl bg-black px-4 py-2 text-sm font-extrabold text-white disabled:opacity-60"
-            >
-              Add
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setAmount("");
-                setVendor("");
-                setNote("");
-                setCategory("Other");
-                setPaymentMethod("Cash");
-              }}
-              className="inline-flex items-center justify-center rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-extrabold"
-            >
-              Clear
-            </button>
+          <div className="text-xs font-extrabold text-gray-600">
+            {saving ? "Saving…" : addOpen ? "Hide" : "Show"}
           </div>
-        </form>
+        </button>
 
-        {errorMsg ? <div className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{errorMsg}</div> : null}
+        {addOpen && (
+          <>
+            <form onSubmit={addExpense} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <label className="text-sm">
+                <div className="mb-1 font-semibold">Amount</div>
+                <input
+                  inputMode="decimal"
+                  placeholder="e.g. 12.50"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  className="w-full rounded-xl border border-gray-200 px-3 py-2"
+                  required
+                />
+              </label>
+
+              <label className="text-sm">
+                <div className="mb-1 font-semibold">Reason</div>
+                <input
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  className="w-full rounded-xl border border-gray-200 px-3 py-2"
+                  placeholder="Reason / details"
+                />
+              </label>
+
+              <label className="text-sm">
+                <div className="mb-1 font-semibold">Payment Method</div>
+                <select
+                  value={paymentMethod}
+                  onChange={(e) => setPaymentMethod(e.target.value)}
+                  className="w-full rounded-xl border border-gray-200 px-3 py-2"
+                >
+                  {PAYMENT_METHODS.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <div className="sm:col-span-2 flex gap-2">
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="inline-flex items-center justify-center rounded-xl bg-black px-4 py-2 text-sm font-extrabold text-white disabled:opacity-60"
+                >
+                  Add
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAmount("");
+                    setNote("");
+                    setPaymentMethod("CASH");
+                  }}
+                  className="inline-flex items-center justify-center rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-extrabold"
+                >
+                  Clear
+                </button>
+              </div>
+            </form>
+
+            {errorMsg ? <div className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{errorMsg}</div> : null}
+          </>
+        )}
       </div>
 
       {/* Filters + summary */}
@@ -285,11 +249,16 @@ export default function Expenses() {
               <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="w-full rounded-xl border border-gray-200 px-3 py-2" />
             </label>
             <label className="text-sm">
-              <div className="mb-1 font-semibold">Currency</div>
-              <select value={currencyFilter} onChange={(e) => setCurrencyFilter(e.target.value)} className="w-full rounded-xl border border-gray-200 px-3 py-2">
-                {CURRENCIES.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
+              <div className="mb-1 font-semibold">Payment</div>
+              <select
+                value={paymentFilter}
+                onChange={(e) => setPaymentFilter(e.target.value)}
+                className="w-full rounded-xl border border-gray-200 px-3 py-2"
+              >
+                <option value="all">All</option>
+                {PAYMENT_METHODS.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
                   </option>
                 ))}
               </select>
@@ -298,7 +267,7 @@ export default function Expenses() {
 
           <div className="rounded-2xl bg-gray-50 px-4 py-3">
             <div className="text-xs text-gray-600">Total</div>
-            <div className="text-lg font-extrabold">{money(totals.total, currencyFilter)}</div>
+            <div className="text-lg font-extrabold">{money(totals.total, "USD")}</div>
             <div className="text-xs text-gray-600">{totals.count} expense(s)</div>
           </div>
         </div>
@@ -345,7 +314,7 @@ export default function Expenses() {
                     <td className="px-4 py-3 max-w-[360px] truncate" title={r.note ?? ""}>
                       {r.note ?? "—"}
                     </td>
-                    <td className="px-4 py-3 text-right font-extrabold">{money(Number(r.amount ?? 0), r.currency)}</td>
+                    <td className="px-4 py-3 text-right font-extrabold">{money(Number(r.amount ?? 0), "USD")}</td>
                     <td className="px-4 py-3 text-right">
                       <button
                         type="button"

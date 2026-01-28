@@ -469,13 +469,13 @@ export default function POS() {
       return;
     }
 
-    // If total was edited, derive unit price = total / qty (bulk deals)
     let unitPrice: number;
     const total = Number(rowDraftTotal);
     const typedUnit = Number(rowDraftUnitPrice);
 
+    // If TOTAL was manually entered, lock it in exactly as typed
     if (rowDraftTotal.trim() !== "" && Number.isFinite(total) && total >= 0) {
-      unitPrice = total / qty;
+      unitPrice = total / qty; // do NOT round here
     } else {
       unitPrice = typedUnit;
     }
@@ -492,7 +492,8 @@ export default function POS() {
           : {
               ...it,
               qty,
-              unit_price: Number(unitPrice.toFixed(2)),
+              // store exact unit price (no forced rounding)
+              unit_price: unitPrice,
             }
       )
     );
@@ -878,28 +879,6 @@ export default function POS() {
       </div>
 
       {/* PRODUCTS */}
-      {!search.trim() ? (
-        <div style={s.controls}>
-          <button
-            type="button"
-            style={{ ...s.categoryBtn, ...(currentSubsub === "all" ? s.categoryBtnActive : null) }}
-            onClick={() => setCurrentSubsub("all")}
-          >
-            All
-          </button>
-
-          {subsubs.map((ss) => (
-            <button
-              key={String(ss.id)}
-              type="button"
-              style={{ ...s.categoryBtn, ...(currentSubsub === String(ss.id) ? s.categoryBtnActive : null) }}
-              onClick={() => setCurrentSubsub(String(ss.id))}
-            >
-              {ss.slug}
-            </button>
-          ))}
-        </div>
-      ) : null}
 
       <div style={s.productsContainer}>
         {filteredProducts.map((p) => (
@@ -1020,10 +999,26 @@ export default function POS() {
                             onChange={(e) => {
                               const v = e.target.value;
                               setRowDraftQty(v);
+
                               const q = Number(v);
                               const up = Number(rowDraftUnitPrice);
-                              if (Number.isFinite(q) && q > 0 && Number.isFinite(up)) {
-                                setRowDraftTotal(String(Number((q * up).toFixed(2))));
+
+                              if (Number.isFinite(q) && q > 0) {
+                                const newUnit = Number.isFinite(up) ? up : it.unit_price;
+
+                                setCart((prev) =>
+                                  prev.map((row) =>
+                                    row.key !== it.key
+                                      ? row
+                                      : {
+                                          ...row,
+                                          qty: q,
+                                          unit_price: newUnit,
+                                        }
+                                  )
+                                );
+
+                                setRowDraftTotal(String(q * newUnit));
                               }
                             }}
                             disabled={checkingOut}
@@ -1044,10 +1039,24 @@ export default function POS() {
                             onChange={(e) => {
                               const v = e.target.value;
                               setRowDraftUnitPrice(v);
+
                               const q = Number(rowDraftQty);
                               const up = Number(v);
+
                               if (Number.isFinite(q) && q > 0 && Number.isFinite(up)) {
-                                setRowDraftTotal(String(Number((q * up).toFixed(2))));
+                                setCart((prev) =>
+                                  prev.map((row) =>
+                                    row.key !== it.key
+                                      ? row
+                                      : {
+                                          ...row,
+                                          qty: q,
+                                          unit_price: up,
+                                        }
+                                  )
+                                );
+
+                                setRowDraftTotal(String(q * up));
                               }
                             }}
                             disabled={checkingOut}
@@ -1068,10 +1077,26 @@ export default function POS() {
                             onChange={(e) => {
                               const v = e.target.value;
                               setRowDraftTotal(v);
+
                               const q = Number(rowDraftQty);
                               const t = Number(v);
+
                               if (Number.isFinite(q) && q > 0 && Number.isFinite(t)) {
-                                setRowDraftUnitPrice(String(Number((t / q).toFixed(2))));
+                                const newUnit = t / q;
+
+                                setCart((prev) =>
+                                  prev.map((row) =>
+                                    row.key !== it.key
+                                      ? row
+                                      : {
+                                          ...row,
+                                          qty: q,
+                                          unit_price: newUnit,
+                                        }
+                                  )
+                                );
+
+                                setRowDraftUnitPrice(String(newUnit));
                               }
                             }}
                             disabled={checkingOut}
@@ -1082,30 +1107,14 @@ export default function POS() {
                       </td>
 
                       <td style={s.td}>
-                        {isEditing ? (
-                          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                            <button
-                              type="button"
-                              style={{ ...s.topBtn, padding: "6px 10px" }}
-                              onClick={() => commitRowEdit(it.key)}
-                              disabled={checkingOut}
-                            >
-                              Save
-                            </button>
-                            <button
-                              type="button"
-                              style={{ ...s.topBtn, padding: "6px 10px" }}
-                              onClick={cancelRowEdit}
-                              disabled={checkingOut}
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        ) : (
-                          <button type="button" style={s.removeBtn} onClick={() => removeCartItem(it.key)} disabled={checkingOut}>
-                            ✖
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          style={s.removeBtn}
+                          onClick={() => removeCartItem(it.key)}
+                          disabled={checkingOut}
+                        >
+                          ✖
+                        </button>
                       </td>
                     </tr>
                   );
